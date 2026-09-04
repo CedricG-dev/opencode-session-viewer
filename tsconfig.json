@@ -4,6 +4,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "strict": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    "lib": ["ESNext", "DOM"]
   }
 }
