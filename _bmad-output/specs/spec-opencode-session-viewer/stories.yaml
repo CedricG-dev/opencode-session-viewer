@@ -1,0 +1,32 @@
+- id: "1"
+  title: Core projector (session/cost state)
+  description: >-
+    Build core/state-store.ts and core/view-model.ts: the in-memory
+    per-session state, starting empty and populated only by event handlers
+    (SPEC.md CAP-2, CAP-4). Zero outgoing dependencies on server/ or
+    dashboard/.
+- id: "2"
+  title: Local server and auto-launch
+  description: >-
+    Build plugin.ts and server/http.ts: Bun.serve setup, static dashboard
+    asset serving, and browser auto-open in the factory body at opencode
+    startup, with non-fatal failure handling (SPEC.md CAP-1).
+- id: "3"
+  title: SSE live transport
+  description: >-
+    Build server/sse.ts: snapshot-first connections, full-replacement
+    per-session deltas, broadcast identically to every connected client
+    (SPEC.md CAP-3, backend half).
+- id: "4"
+  title: Dashboard frontend
+  description: >-
+    Build dashboard/main.tsx, store.ts, and components/: Preact+signals
+    session list, per-session and aggregate cost, disconnected indicator,
+    EventSource reconnect, and auto-escaped rendering of session-derived
+    text (SPEC.md CAP-2, CAP-3, CAP-4 UI half).
+- id: "5"
+  title: Configuration
+  description: >-
+    Wire port, hostname, and autoLaunch options read once from the plugin
+    factory's options argument, with documented defaults and graceful
+    port-conflict handling (SPEC.md CAP-5).
