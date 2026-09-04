@@ -33,3 +33,7 @@
 - source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
   summary: The dashboard ships with zero CSS/visual styling -- e.g. no visual distinction for `errorFlag` rows or `busy`/`retry`/`idle` status, beyond the plain text already shown.
   evidence: No PRD or architecture requirement mandates a specific visual design for MVP. This was an oversight not logged during the story's own review rounds rather than a deliberately documented exclusion -- logging it now for future follow-up.
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/5-configuration.md`
+  summary: `resolveConfig()` silently falls back to a field's default when that field's option value has the wrong runtime type, with zero user-facing feedback (no log naming the ignored field/value).
+  evidence: Matches the frozen spec's explicit "falls back rather than being coerced" boundary as written, so not a spec deviation, but Blind Hunter flagged that a user with a config typo (e.g. `port: "4097"`) gets no signal why the port silently changed. Worth a `level:"warn"` log if this becomes a real support burden.

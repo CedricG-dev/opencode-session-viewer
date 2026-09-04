@@ -6,7 +6,14 @@ import type { Event, Session } from "@opencode-ai/sdk";
 import { getViewModel } from "./core/state-store.js";
 import { closeAllConnections } from "./server/sse.js";
 import type { StartServerOptions } from "./server/http.js";
-import { createHandler, dispatchEvent, resolveOpenCommand, resolveStaticDir, type PluginDeps } from "./plugin.js";
+import {
+  createHandler,
+  dispatchEvent,
+  resolveConfig,
+  resolveOpenCommand,
+  resolveStaticDir,
+  type PluginDeps,
+} from "./plugin.js";
 
 type LogCall = { service: string; level: string; message: string };
 
@@ -88,6 +95,44 @@ describe("resolveStaticDir", () => {
   });
 });
 
+describe("resolveConfig", () => {
+  test("no options given: falls back to the documented defaults", () => {
+    expect(resolveConfig(undefined)).toEqual({ port: 0, hostname: "127.0.0.1", autoLaunch: true });
+  });
+
+  test("valid options supplied: resolves to exactly those values", () => {
+    expect(resolveConfig({ port: 4097, hostname: "0.0.0.0", autoLaunch: false })).toEqual({
+      port: 4097,
+      hostname: "0.0.0.0",
+      autoLaunch: false,
+    });
+  });
+
+  test("wrong-typed port: falls back to its default, others resolve independently", () => {
+    expect(resolveConfig({ port: "4097", hostname: "0.0.0.0" })).toEqual({
+      port: 0,
+      hostname: "0.0.0.0",
+      autoLaunch: true,
+    });
+  });
+
+  test("wrong-typed hostname: falls back to its default, others resolve independently", () => {
+    expect(resolveConfig({ hostname: 12345, port: 4097 })).toEqual({
+      port: 4097,
+      hostname: "127.0.0.1",
+      autoLaunch: true,
+    });
+  });
+
+  test("wrong-typed autoLaunch: falls back to its default, others resolve independently", () => {
+    expect(resolveConfig({ autoLaunch: "false", port: 4097 })).toEqual({
+      port: 4097,
+      hostname: "127.0.0.1",
+      autoLaunch: true,
+    });
+  });
+});
+
 describe("plugin factory", () => {
   afterEach(() => {
     closeAllConnections();
@@ -115,6 +160,53 @@ describe("plugin factory", () => {
     await hooks.dispose?.();
     expect(stopped.count).toBe(1);
     expect(stopArgs).toEqual([true]);
+  });
+
+  test("options supplied: port and hostname reach deps.startServer verbatim", async () => {
+    const { client } = makeClient();
+    const stopped = { count: 0 };
+    let receivedOptions: StartServerOptions | undefined;
+    const deps: PluginDeps = {
+      startServer: (options) => {
+        receivedOptions = options;
+        return fakeServer(stopped);
+      },
+      spawn: () => fakeSubprocess(0),
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput, {
+      port: 4097,
+      hostname: "0.0.0.0",
+      autoLaunch: false,
+    });
+    await flushMicrotasks();
+
+    expect(receivedOptions?.port).toBe(4097);
+    expect(receivedOptions?.hostname).toBe("0.0.0.0");
+    await hooks.dispose?.();
+  });
+
+  test("autoLaunch:false, bind succeeds: deps.spawn is never called, level:info log names the reachable URL", async () => {
+    const { client, logs } = makeClient();
+    const stopped = { count: 0 };
+    const server = fakeServer(stopped);
+    const spawnCalls: string[][] = [];
+    const deps: PluginDeps = {
+      startServer: () => server,
+      spawn: (cmd) => {
+        spawnCalls.push(cmd as string[]);
+        return fakeSubprocess(0);
+      },
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput, { autoLaunch: false });
+    await flushMicrotasks();
+
+    expect(spawnCalls).toEqual([]);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.level).toBe("info");
+    expect(logs[0]?.message).toContain(server.url.toString());
+    await hooks.dispose?.();
   });
 
   test("browser opener exits non-zero: logs level:warn, server keeps running", async () => {
