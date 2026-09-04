@@ -13,3 +13,23 @@
 - source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/3-sse-live-transport.md`
   summary: `core/state-store.ts` never handles `session.deleted`/`message.removed` events — sessions and their message maps are never evicted, so memory grows unbounded over a long-running opencode process.
   evidence: The handler set was fixed at story 1, before any live event wiring existed, so this predates story 3. It only becomes consequential now that story 3 wires `Hooks.event` to actually deliver live events into `core/state-store.ts` for the process's full lifetime. Flagged by story 3's Edge Case Hunter review round.
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
+  summary: Dashboard has no accessibility affordances (`DisconnectedIndicator` lacks an ARIA live region) and no mobile viewport meta tag.
+  evidence: Neither SPEC.md nor the PRD states an accessibility or mobile-support requirement, so out of this story's scope, but flagged by Blind Hunter as a real gap for a browser-based dashboard.
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
+  summary: `bun run build`'s output is unminified.
+  evidence: Fine at the current ~34KB bundle size; worth revisiting only if the dashboard's bundle or the number of returning users grows enough for load time to matter (SPEC.md's ~2s first-paint budget is not yet at risk). Note `Bun.build` already content-hashes output filenames, so cache-busting is not a gap here.
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
+  summary: `lastActivity` renders as a raw ISO-8601 string with no human-relative/localized formatting.
+  evidence: Unambiguous and precise as-is; no PRD/SPEC requirement mandates a specific format. Flagged by Blind Hunter as a UX polish item, not a correctness gap.
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
+  summary: `dashboard/store.ts`'s `applyPayload` trusts the SSE payload's shape (a well-formed `ViewModel`/`ViewModel[]`) without validating field types (e.g. non-numeric `cost`, missing `id` on a delta).
+  evidence: Currently safe — `server/sse.ts` broadcasts only what `core/view-model.ts`'s typed `deriveViewModel` produces, the sole writer of this wire contract (AD-3). Would need hardening only if that single-writer trust boundary ever changes (e.g. a second server implementation).
+
+- source_spec: `_bmad-output/specs/spec-opencode-session-viewer/stories/4-dashboard-frontend.md`
+  summary: The dashboard ships with zero CSS/visual styling -- e.g. no visual distinction for `errorFlag` rows or `busy`/`retry`/`idle` status, beyond the plain text already shown.
+  evidence: No PRD or architecture requirement mandates a specific visual design for MVP. This was an oversight not logged during the story's own review rounds rather than a deliberately documented exclusion -- logging it now for future follow-up.
