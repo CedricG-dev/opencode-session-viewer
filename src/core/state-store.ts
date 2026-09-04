@@ -75,8 +75,15 @@ export function handleMessageUpdated(event: EventMessageUpdated): void {
   state.messages.set(message.id, message);
 }
 
+/**
+ * Sorted by session creation time ascending, so the list order is stable and chronological.
+ * Ties (identical `time.created`) break on `id` ascending, so the order is deterministic rather
+ * than relying incidentally on `Array.prototype.sort`'s stability guarantee.
+ */
 export function getViewModels(): ViewModel[] {
-  return Array.from(sessions.values(), deriveViewModel);
+  return Array.from(sessions.values())
+    .sort((a, b) => a.session.time.created - b.session.time.created || a.session.id.localeCompare(b.session.id))
+    .map(deriveViewModel);
 }
 
 export function getViewModel(id: string): ViewModel | undefined {

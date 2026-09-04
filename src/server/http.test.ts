@@ -57,4 +57,31 @@ describe("server/http", () => {
 
     expect(response.status).toBe(404);
   });
+
+  test("GET /event delegates to onEventRequest instead of static serving", async () => {
+    server = startServer({
+      hostname: "127.0.0.1",
+      port: 0,
+      staticDir,
+      onEventRequest: () => new Response("event-response"),
+    });
+
+    const response = await fetch(new URL("/event", server.url));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("event-response");
+  });
+
+  test("POST /event falls through to static serving (404), never hits onEventRequest", async () => {
+    server = startServer({
+      hostname: "127.0.0.1",
+      port: 0,
+      staticDir,
+      onEventRequest: () => new Response("event-response"),
+    });
+
+    const response = await fetch(new URL("/event", server.url), { method: "POST" });
+
+    expect(response.status).toBe(404);
+  });
 });

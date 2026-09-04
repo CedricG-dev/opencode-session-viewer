@@ -296,4 +296,24 @@ describe("state-store", () => {
     expect(byId.get("s-all-1")).toEqual(getViewModel("s-all-1"));
     expect(byId.get("s-all-2")).toEqual(getViewModel("s-all-2"));
   });
+
+  test("getViewModels: sorted by session.time.created ascending, regardless of creation order", () => {
+    handleSessionCreated(makeSessionCreated("s-order-later", { time: { created: 300, updated: 300 } }));
+    handleSessionCreated(makeSessionCreated("s-order-earliest", { time: { created: 100, updated: 100 } }));
+    handleSessionCreated(makeSessionCreated("s-order-middle", { time: { created: 200, updated: 200 } }));
+
+    const ids = getViewModels().map((vm) => vm.id);
+
+    expect(ids.indexOf("s-order-earliest")).toBeLessThan(ids.indexOf("s-order-middle"));
+    expect(ids.indexOf("s-order-middle")).toBeLessThan(ids.indexOf("s-order-later"));
+  });
+
+  test("getViewModels: identical time.created ties break on id ascending", () => {
+    handleSessionCreated(makeSessionCreated("s-tie-b", { time: { created: 500, updated: 500 } }));
+    handleSessionCreated(makeSessionCreated("s-tie-a", { time: { created: 500, updated: 500 } }));
+
+    const ids = getViewModels().map((vm) => vm.id);
+
+    expect(ids.indexOf("s-tie-a")).toBeLessThan(ids.indexOf("s-tie-b"));
+  });
 });

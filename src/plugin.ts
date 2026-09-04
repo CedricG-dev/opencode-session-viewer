@@ -1,5 +1,17 @@
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
+import type { Event } from "@opencode-ai/sdk";
 import { startServer } from "./server/http.js";
+import { broadcast, closeAllConnections, handleEventRequest } from "./server/sse.js";
+import {
+  getViewModel,
+  getViewModels,
+  handleMessageUpdated,
+  handleSessionCreated,
+  handleSessionError,
+  handleSessionIdle,
+  handleSessionStatus,
+  handleSessionUpdated,
+} from "./core/state-store.js";
 
 const SERVICE = "opencode-session-viewer";
 
@@ -33,6 +45,35 @@ export function resolveStaticDir(): string {
   return Bun.fileURLToPath(new URL("../dist", import.meta.url));
 }
 
+/**
+ * Dispatches one opencode `Event` to the matching `core/state-store.ts` handler, returning the
+ * affected session id (if any) so the caller can broadcast its freshly-derived `ViewModel`.
+ */
+export function dispatchEvent(event: Event): string | undefined {
+  switch (event.type) {
+    case "session.created":
+      handleSessionCreated(event);
+      return event.properties.info.id;
+    case "session.updated":
+      handleSessionUpdated(event);
+      return event.properties.info.id;
+    case "session.status":
+      handleSessionStatus(event);
+      return event.properties.sessionID;
+    case "session.idle":
+      handleSessionIdle(event);
+      return event.properties.sessionID;
+    case "session.error":
+      handleSessionError(event);
+      return event.properties.sessionID;
+    case "message.updated":
+      handleMessageUpdated(event);
+      return event.properties.info.sessionID;
+    default:
+      return undefined;
+  }
+}
+
 export type PluginDeps = {
   startServer: typeof startServer;
   spawn: typeof Bun.spawn;
@@ -48,7 +89,12 @@ export function createHandler(deps: PluginDeps) {
     let server: Bun.Server<undefined> | undefined;
 
     try {
-      server = deps.startServer({ hostname: "127.0.0.1", port: 0, staticDir: resolveStaticDir() });
+      server = deps.startServer({
+        hostname: "127.0.0.1",
+        port: 0,
+        staticDir: resolveStaticDir(),
+        onEventRequest: () => handleEventRequest(getViewModels),
+      });
     } catch (error) {
       await log(client, "error", `Failed to start local server: ${formatError(error)}`);
     }
@@ -69,9 +115,20 @@ export function createHandler(deps: PluginDeps) {
     }
 
     return {
+      async event({ event }) {
+        try {
+          const sessionID = dispatchEvent(event);
+          if (!sessionID) return;
+          const viewModel = getViewModel(sessionID);
+          if (viewModel) broadcast(viewModel);
+        } catch (error) {
+          await log(client, "error", `Failed to handle event: ${formatError(error)}`);
+        }
+      },
       async dispose() {
         try {
-          await server?.stop();
+          closeAllConnections();
+          await server?.stop(true);
         } catch (error) {
           await log(client, "warn", `Failed to stop local server: ${formatError(error)}`);
         }
