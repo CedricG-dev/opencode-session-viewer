@@ -1,4 +1,4 @@
-import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
+import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import type { Event } from "@opencode-ai/sdk";
 import { startServer } from "./server/http.js";
 import { broadcast, closeAllConnections, handleEventRequest } from "./server/sse.js";
@@ -31,8 +31,33 @@ function formatError(error: unknown): string {
   return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
+export type ResolvedConfig = {
+  hostname: string;
+  port: number;
+  autoLaunch: boolean;
+};
+
+const DEFAULT_CONFIG: ResolvedConfig = {
+  hostname: "127.0.0.1",
+  port: 0,
+  autoLaunch: true,
+};
+
+/**
+ * Reads `port`/`hostname`/`autoLaunch` from the factory's `options` argument (AD-5), with
+ * type-checked fallback to `DEFAULT_CONFIG` per field — a wrong-typed option (e.g. `port` as a
+ * string) falls back rather than being coerced.
+ */
+export function resolveConfig(options: PluginOptions | undefined): ResolvedConfig {
+  return {
+    hostname: typeof options?.hostname === "string" ? options.hostname : DEFAULT_CONFIG.hostname,
+    port: typeof options?.port === "number" ? options.port : DEFAULT_CONFIG.port,
+    autoLaunch: typeof options?.autoLaunch === "boolean" ? options.autoLaunch : DEFAULT_CONFIG.autoLaunch,
+  };
+}
+
 /** Never lets a failing `client.app.log()` call itself escape as an unhandled rejection. */
-async function log(client: PluginInput["client"], level: "error" | "warn", message: string): Promise<void> {
+async function log(client: PluginInput["client"], level: "error" | "warn" | "info", message: string): Promise<void> {
   try {
     await client.app.log({ body: { service: SERVICE, level, message } });
   } catch {
@@ -85,13 +110,14 @@ export type PluginDeps = {
  * registry process-wide, leaking across test files — plain parameters avoid that entirely).
  */
 export function createHandler(deps: PluginDeps) {
-  return async ({ client }: PluginInput): Promise<Hooks> => {
+  return async ({ client }: PluginInput, options?: PluginOptions): Promise<Hooks> => {
+    const config = resolveConfig(options);
     let server: Bun.Server<undefined> | undefined;
 
     try {
       server = deps.startServer({
-        hostname: "127.0.0.1",
-        port: 0,
+        hostname: config.hostname,
+        port: config.port,
         staticDir: resolveStaticDir(),
         onEventRequest: () => handleEventRequest(getViewModels),
       });
@@ -99,7 +125,9 @@ export function createHandler(deps: PluginDeps) {
       await log(client, "error", `Failed to start local server: ${formatError(error)}`);
     }
 
-    if (server) {
+    if (server && !config.autoLaunch) {
+      await log(client, "info", `Dashboard available at ${server.url.toString()}`);
+    } else if (server) {
       try {
         // stdio: ignore avoids the well-documented Bun.spawn gotcha where an inherited/piped
         // stdio keeps the parent (opencode) process alive after the browser opener exits.
