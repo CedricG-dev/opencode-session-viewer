@@ -1,8 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PluginInput } from "@opencode-ai/plugin";
-import { createHandler, resolveOpenCommand, resolveStaticDir, type PluginDeps } from "./plugin.js";
+import type { Event, Session } from "@opencode-ai/sdk";
+import { getViewModel } from "./core/state-store.js";
+import { closeAllConnections } from "./server/sse.js";
+import type { StartServerOptions } from "./server/http.js";
+import { createHandler, dispatchEvent, resolveOpenCommand, resolveStaticDir, type PluginDeps } from "./plugin.js";
 
 type LogCall = { service: string; level: string; message: string };
 
@@ -19,13 +23,33 @@ function makeClient(): { client: PluginInput["client"]; logs: LogCall[] } {
   return { client, logs };
 }
 
-function fakeServer(stopped: { count: number }): Bun.Server<undefined> {
+function fakeServer(stopped: { count: number }, stopArgs: unknown[] = []): Bun.Server<undefined> {
   return {
     url: new URL("http://127.0.0.1:12345/"),
-    async stop() {
+    async stop(closeActiveConnections?: boolean) {
       stopped.count += 1;
+      stopArgs.push(closeActiveConnections);
     },
   } as unknown as Bun.Server<undefined>;
+}
+
+function makeSession(id: string): Session {
+  return {
+    id,
+    projectID: "proj-1",
+    directory: "/tmp/proj",
+    title: `Session ${id}`,
+    version: "1",
+    time: { created: 1, updated: 1 },
+  };
+}
+
+/** Reads a single `data: <json>\n\n` message off a `handleEventRequest`/broadcast stream. */
+async function readSseMessage(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<unknown> {
+  const { value, done } = await reader.read();
+  if (done || !value) throw new Error("stream ended before a message was received");
+  const line = new TextDecoder().decode(value);
+  return JSON.parse(line.slice("data: ".length, line.indexOf("\n\n")));
 }
 
 function fakeSubprocess(exitCode: number): ReturnType<typeof Bun.spawn> {
@@ -65,10 +89,15 @@ describe("resolveStaticDir", () => {
 });
 
 describe("plugin factory", () => {
-  test("plugin loads normally: server starts, browser opens to the bound URL, dispose() stops the server", async () => {
+  afterEach(() => {
+    closeAllConnections();
+  });
+
+  test("plugin loads normally: server starts, browser opens to the bound URL, dispose() stops the server with stop(true)", async () => {
     const { client, logs } = makeClient();
     const stopped = { count: 0 };
-    const server = fakeServer(stopped);
+    const stopArgs: unknown[] = [];
+    const server = fakeServer(stopped, stopArgs);
     const spawnCalls: string[][] = [];
     const deps: PluginDeps = {
       startServer: () => server,
@@ -85,6 +114,7 @@ describe("plugin factory", () => {
     expect(spawnCalls).toEqual([resolveOpenCommand(process.platform, server.url.toString())]);
     await hooks.dispose?.();
     expect(stopped.count).toBe(1);
+    expect(stopArgs).toEqual([true]);
   });
 
   test("browser opener exits non-zero: logs level:warn, server keeps running", async () => {
@@ -158,5 +188,126 @@ describe("plugin factory", () => {
     // server kept running: dispose() still stops the server that was started.
     await hooks.dispose?.();
     expect(stopped.count).toBe(1);
+  });
+});
+
+describe("dispatchEvent", () => {
+  test("session.created dispatches to state-store and returns the session id", () => {
+    const event: Event = { type: "session.created", properties: { info: makeSession("s-dispatch-created") } };
+    expect(dispatchEvent(event)).toBe("s-dispatch-created");
+    expect(getViewModel("s-dispatch-created")).toBeDefined();
+  });
+
+  test("session.status dispatches to state-store and returns the session id", () => {
+    dispatchEvent({ type: "session.created", properties: { info: makeSession("s-dispatch-status") } });
+
+    const event: Event = {
+      type: "session.status",
+      properties: { sessionID: "s-dispatch-status", status: { type: "busy" } },
+    };
+    expect(dispatchEvent(event)).toBe("s-dispatch-status");
+    expect(getViewModel("s-dispatch-status")?.status).toBe("busy");
+  });
+
+  test("message.updated for an unknown session returns the session id even though state-store no-ops", () => {
+    const event: Event = {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg-1",
+          sessionID: "s-dispatch-unknown",
+          role: "user",
+          time: { created: 1 },
+          agent: "build",
+          model: { providerID: "provider-1", modelID: "model-1" },
+        },
+      },
+    };
+    expect(dispatchEvent(event)).toBe("s-dispatch-unknown");
+    expect(getViewModel("s-dispatch-unknown")).toBeUndefined();
+  });
+});
+
+describe("Hooks.event", () => {
+  afterEach(() => {
+    closeAllConnections();
+  });
+
+  test("known session: a connected SSE client receives a data: line equal to getViewModel(id)", async () => {
+    const { client } = makeClient();
+    const stopped = { count: 0 };
+    let onEventRequest: StartServerOptions["onEventRequest"];
+    const deps: PluginDeps = {
+      startServer: (options) => {
+        onEventRequest = options.onEventRequest;
+        return fakeServer(stopped);
+      },
+      spawn: () => fakeSubprocess(0),
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: makeSession("s-event-known") } },
+    });
+
+    const response = onEventRequest!(new Request("http://127.0.0.1/event"));
+    const reader = response.body!.getReader();
+    await readSseMessage(reader); // initial snapshot
+
+    await hooks.event?.({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "s-event-known", status: { type: "busy" } },
+      },
+    });
+
+    await expect(readSseMessage(reader)).resolves.toEqual(getViewModel("s-event-known"));
+    await reader.cancel();
+  });
+
+  test("unknown session: event hook resolves without broadcasting anything", async () => {
+    const { client, logs } = makeClient();
+    const stopped = { count: 0 };
+    const deps: PluginDeps = {
+      startServer: () => fakeServer(stopped),
+      spawn: () => fakeSubprocess(0),
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    await expect(
+      hooks.event?.({
+        event: {
+          type: "session.status",
+          properties: { sessionID: "s-event-never-seen", status: { type: "busy" } },
+        },
+      }),
+    ).resolves.toBeUndefined();
+    expect(logs).toHaveLength(0);
+    expect(getViewModel("s-event-never-seen")).toBeUndefined();
+  });
+
+  test("dispatch throws: event hook resolves without throwing, logs level:error", async () => {
+    const { client, logs } = makeClient();
+    const stopped = { count: 0 };
+    const deps: PluginDeps = {
+      startServer: () => fakeServer(stopped),
+      spawn: () => fakeSubprocess(0),
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    // Malformed event: matches a known type but is missing the properties dispatchEvent reads,
+    // triggering an unexpected TypeError inside the handler.
+    const malformed = { type: "session.created", properties: {} } as unknown as Event;
+
+    await expect(hooks.event?.({ event: malformed })).resolves.toBeUndefined();
+    expect(logs.some((entry) => entry.level === "error" && entry.message.includes("Failed to handle event"))).toBe(
+      true,
+    );
   });
 });
