@@ -56,16 +56,15 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
 
-      # Trusted publishing (OIDC) requires npm CLI >=11.5.1; bun publish doesn't
-      # support OIDC yet, so the publish step itself uses npm, not bun.
+      # Trusted/staged publishing (OIDC) needs npm CLI >=11.15.0; Node 24
+      # already bundles npm 11.19+, so no manual upgrade is needed. bun
+      # publish doesn't support OIDC yet, so the publish step uses npm, not bun.
       - uses: actions/setup-node@v4
         if: steps.verify.outputs.valid == 'true'
         with:
           node-version: '24'
-
-      - run: npm install -g npm@latest
-        if: steps.verify.outputs.valid == 'true'
-
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false 
       # Submits to npm's staging area only. A maintainer must still review and
       # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)
       # before the version actually goes live on the registry.
