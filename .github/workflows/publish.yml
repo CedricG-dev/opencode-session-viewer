@@ -64,12 +64,10 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false 
+          package-manager-cache: false
+
       # Submits to npm's staging area only. A maintainer must still review and
       # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)
       # before the version actually goes live on the registry.
-      - run: npm ci
-      - run: npm run build --if-present
-      - run: npm test
-      - run: npm publish
-        if: steps.verify.outputs.valid == 'true'
+      - run: npm stage publish
+        if: steps.verify.outputs.valid == 'true' 
