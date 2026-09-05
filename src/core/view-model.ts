@@ -24,7 +24,9 @@ export type TokenBreakdown = {
 
 const ZERO_TOKENS: TokenBreakdown = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
 
-function addTokens(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
+/** Exported for `dashboard/model-filter.ts`'s re-summing of a filtered `ModelUsage[]` subset --
+ * same trivial merge, just reused instead of duplicated. */
+export function addTokens(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
   return {
     input: a.input + b.input,
     output: a.output + b.output,
@@ -38,6 +40,44 @@ export function tokenTotal(tokens: TokenBreakdown): number {
   return tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
 }
 
+/** Per-model/provider slice of tokens+cost, keyed by the pair (a session can switch models mid-run). */
+export type ModelUsage = {
+  providerID: string;
+  modelID: string;
+  tokens: TokenBreakdown;
+  cost: number;
+};
+
+function modelKey(m: { providerID: string; modelID: string }): string {
+  return `${m.providerID}\u0000${m.modelID}`;
+}
+
+/** Deterministic order for rendering: biggest spender first, ties broken by id so output never
+ * reorders between otherwise-identical calls. */
+function byCostDesc(a: ModelUsage, b: ModelUsage): number {
+  return b.cost - a.cost || modelKey(a).localeCompare(modelKey(b));
+}
+
+/**
+ * Flattens any number of per-model breakdown arrays into one, summing entries that share the same
+ * providerID+modelID (e.g. own + every child's, or every top-level session's for the dashboard
+ * aggregate). Pure merge only -- never recomputes a value opencode didn't already report (AD-2).
+ */
+export function mergeModelUsage(lists: ModelUsage[][]): ModelUsage[] {
+  const map = new Map<string, ModelUsage>();
+  for (const entry of lists.flat()) {
+    const key = modelKey(entry);
+    const existing = map.get(key);
+    map.set(
+      key,
+      existing
+        ? { ...existing, tokens: addTokens(existing.tokens, entry.tokens), cost: existing.cost + entry.cost }
+        : entry,
+    );
+  }
+  return Array.from(map.values()).sort(byCostDesc);
+}
+
 /**
  * One sub-session's own contribution, nested under its root's `ViewModel.children`. A sub-session
  * (`Session.parentID` set -- created when a subagent runs via the Task tool) never gets its own
@@ -49,6 +89,7 @@ export type SubSessionSummary = {
   status: SessionStatusValue;
   tokens: TokenBreakdown;
   cost: number;
+  models: ModelUsage[];
   messageCount: number;
   lastActivity: string;
   errorFlag: boolean;
@@ -70,8 +111,10 @@ export type ViewModel = {
   status: SessionStatusValue;
   tokens: TokenBreakdown;
   cost: number;
+  models: ModelUsage[];
   ownTokens: TokenBreakdown;
   ownCost: number;
+  ownModels: ModelUsage[];
   messageCount: number;
   lastActivity: string;
   errorFlag: boolean;
@@ -83,17 +126,27 @@ export type ViewModel = {
  * This session's own tokens/cost, re-summed fresh from its messages map on every call so a later
  * `message.updated` for the same messageID naturally replaces, never adds to, an earlier value.
  */
-function ownTotals(state: SessionState): { tokens: TokenBreakdown; cost: number } {
+function ownTotals(state: SessionState): { tokens: TokenBreakdown; cost: number; models: ModelUsage[] } {
   let tokens = ZERO_TOKENS;
   let cost = 0;
+  const modelMap = new Map<string, ModelUsage>();
 
   for (const message of state.messages.values()) {
     if (message.role !== "assistant") continue;
     tokens = addTokens(tokens, message.tokens);
     cost += message.cost;
+
+    const key = modelKey(message);
+    const existing = modelMap.get(key);
+    modelMap.set(
+      key,
+      existing
+        ? { ...existing, tokens: addTokens(existing.tokens, message.tokens), cost: existing.cost + message.cost }
+        : { providerID: message.providerID, modelID: message.modelID, tokens: message.tokens, cost: message.cost },
+    );
   }
 
-  return { tokens, cost };
+  return { tokens, cost, models: Array.from(modelMap.values()).sort(byCostDesc) };
 }
 
 function byCreatedThenId(a: SessionState, b: SessionState): number {
@@ -154,6 +207,7 @@ export function buildViewModels(sessions: Map<string, SessionState>): ViewModel[
         status: state.status,
         tokens: childOwn.tokens,
         cost: childOwn.cost,
+        models: childOwn.models,
         messageCount: state.messages.size,
         lastActivity: new Date(state.session.time.updated).toISOString(),
         errorFlag: state.errorFlag,
@@ -167,8 +221,10 @@ export function buildViewModels(sessions: Map<string, SessionState>): ViewModel[
       status: rootState.status,
       tokens: children.reduce((sum, child) => addTokens(sum, child.tokens), own.tokens),
       cost: children.reduce((sum, child) => sum + child.cost, own.cost),
+      models: mergeModelUsage([own.models, ...children.map((child) => child.models)]),
       ownTokens: own.tokens,
       ownCost: own.cost,
+      ownModels: own.models,
       messageCount: rootState.messages.size,
       lastActivity: new Date(rootState.session.time.updated).toISOString(),
       errorFlag: rootState.errorFlag,

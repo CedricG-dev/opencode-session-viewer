@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ViewModel } from "../core/view-model.js";
-import { applyPayload, connect, connected, sessions, aggregateCost, aggregateTokens, type EventSourceLike } from "./store.js";
+import {
+  applyPayload,
+  clearModelFilter,
+  connect,
+  connected,
+  filteredSessions,
+  sessions,
+  selectedModelKeys,
+  aggregateCost,
+  aggregateModels,
+  aggregateTokens,
+  toggleModelFilter,
+  type EventSourceLike,
+} from "./store.js";
 
 function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewModel {
   return {
@@ -9,8 +22,10 @@ function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewMode
     status: "idle",
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,
+    models: [],
     ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     ownCost: 0,
+    ownModels: [],
     messageCount: 0,
     lastActivity: new Date(0).toISOString(),
     errorFlag: false,
@@ -43,11 +58,13 @@ describe("dashboard/store", () => {
   beforeEach(() => {
     sessions.value = [];
     connected.value = false;
+    selectedModelKeys.value = new Set();
   });
 
   afterEach(() => {
     sessions.value = [];
     connected.value = false;
+    selectedModelKeys.value = new Set();
   });
 
   describe("connect", () => {
@@ -157,6 +174,108 @@ describe("dashboard/store", () => {
       expect(aggregateTokens.value.input).toBe(1);
       applyPayload(makeViewModel("s-1", { tokens: { input: 5, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }));
       expect(aggregateTokens.value.input).toBe(5);
+    });
+  });
+
+  describe("aggregateModels", () => {
+    test("no sessions: empty array", () => {
+      sessions.value = [];
+      expect(aggregateModels.value).toEqual([]);
+    });
+
+    test("merges the same providerID/modelID across sessions into one entry", () => {
+      sessions.value = [
+        makeViewModel("s-1", {
+          models: [
+            { providerID: "anthropic", modelID: "claude", tokens: { input: 10, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 1 },
+          ],
+        }),
+        makeViewModel("s-2", {
+          models: [
+            { providerID: "anthropic", modelID: "claude", tokens: { input: 5, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 2 },
+          ],
+        }),
+      ];
+
+      expect(aggregateModels.value).toEqual([
+        { providerID: "anthropic", modelID: "claude", tokens: { input: 15, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 3 },
+      ]);
+    });
+
+    test("distinct models across sessions produce separate entries, sorted by cost descending", () => {
+      sessions.value = [
+        makeViewModel("s-1", {
+          models: [
+            { providerID: "p-a", modelID: "cheap", tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 0.01 },
+          ],
+        }),
+        makeViewModel("s-2", {
+          models: [
+            { providerID: "p-b", modelID: "pricey", tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 1 },
+          ],
+        }),
+      ];
+
+      expect(aggregateModels.value.map((m) => `${m.providerID}/${m.modelID}`)).toEqual(["p-b/pricey", "p-a/cheap"]);
+    });
+
+    test("updates live when sessions changes", () => {
+      sessions.value = [
+        makeViewModel("s-1", {
+          models: [
+            { providerID: "p-a", modelID: "m-1", tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 0.01 },
+          ],
+        }),
+      ];
+      expect(aggregateModels.value).toHaveLength(1);
+      applyPayload(makeViewModel("s-1", { models: [] }));
+      expect(aggregateModels.value).toEqual([]);
+    });
+  });
+
+  describe("model filter (selectedModelKeys/filteredSessions/toggleModelFilter/clearModelFilter)", () => {
+    const claude = { providerID: "anthropic", modelID: "claude", tokens: { input: 10, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 1 };
+    const gpt = { providerID: "openai", modelID: "gpt", tokens: { input: 5, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 2 };
+
+    test("no filter selected: filteredSessions equals sessions unchanged", () => {
+      sessions.value = [makeViewModel("s-1", { ownModels: [claude], models: [claude] })];
+      expect(filteredSessions.value).toBe(sessions.value);
+    });
+
+    test("toggleModelFilter adds then removes a key; filteredSessions reacts live", () => {
+      sessions.value = [
+        makeViewModel("s-1", { ownModels: [claude], models: [claude], cost: 1 }),
+        makeViewModel("s-2", { ownModels: [gpt], models: [gpt], cost: 2 }),
+      ];
+
+      toggleModelFilter("anthropic::claude");
+      expect(filteredSessions.value.map((vm) => vm.id)).toEqual(["s-1"]);
+
+      toggleModelFilter("anthropic::claude");
+      expect(filteredSessions.value).toBe(sessions.value);
+    });
+
+    test("clearModelFilter resets to \"All\"", () => {
+      sessions.value = [makeViewModel("s-1", { ownModels: [claude], models: [claude] })];
+      toggleModelFilter("openai::gpt");
+      expect(filteredSessions.value).toEqual([]);
+
+      clearModelFilter();
+      expect(selectedModelKeys.value.size).toBe(0);
+      expect(filteredSessions.value).toBe(sessions.value);
+    });
+
+    test("the total card's signals (aggregateCost/aggregateTokens/aggregateModels) are never affected by the filter", () => {
+      sessions.value = [
+        makeViewModel("s-1", { ownModels: [claude], models: [claude], cost: 1, tokens: claude.tokens }),
+        makeViewModel("s-2", { ownModels: [gpt], models: [gpt], cost: 2, tokens: gpt.tokens }),
+      ];
+
+      toggleModelFilter("anthropic::claude");
+
+      expect(filteredSessions.value).toHaveLength(1);
+      expect(aggregateCost.value).toBeCloseTo(3);
+      expect(aggregateModels.value).toHaveLength(2);
     });
   });
 });

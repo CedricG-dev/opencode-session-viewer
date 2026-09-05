@@ -16,12 +16,11 @@ function SubSessionItem(sub: SubSessionSummary) {
       <span class="session-card__subsession-arrow" aria-hidden="true">↳</span>
       <span class="session-card__badge session-card__badge--${accent}">${sub.status}</span>
       <span class="session-card__subsession-title">${sub.title}</span>
-      <span class="session-card__field">Messages: ${sub.messageCount}</span>
-      <span class="session-card__field">Input: ${fmt(sub.tokens.input)}</span>
-      <span class="session-card__field">Output: ${fmt(sub.tokens.output)}</span>
-      <span class="session-card__field">Reasoning: ${fmt(sub.tokens.reasoning)}</span>
-      <span class="session-card__field">Cache Write: ${fmt(sub.tokens.cache.write)}</span>
-      <span class="session-card__field">Cache Read: ${fmt(sub.tokens.cache.read)}</span>
+      <span class="session-card__field">Messages: <span class="field-value">${sub.messageCount}</span></span>
+      <span class="session-card__field">Input: <span class="field-value">${fmt(sub.tokens.input)}</span></span>
+      <span class="session-card__field">Output: <span class="field-value">${fmt(sub.tokens.output)}</span></span>
+      <span class="session-card__field">Reasoning: <span class="field-value">${fmt(sub.tokens.reasoning)}</span></span>
+      <span class="session-card__field">Cache R/W: <span class="field-value">${fmt(sub.tokens.cache.read)}/${fmt(sub.tokens.cache.write)}</span></span>
       <span class="session-card__field">Cost: <span class="value-badge value-badge--cost">$${fmtCost(sub.cost)}</span></span>
       ${sub.errorFlag ? html`<span class="session-card__error">${sub.errorMessage ?? ""}</span>` : null}
     </li>
@@ -45,21 +44,20 @@ export function SessionCard(viewModel: ViewModel) {
   const accent = viewModel.errorFlag ? "error" : viewModel.status;
   return html`
     <div class="session-card session-card--${accent}">
-      <h3 class="session-card__title">${viewModel.title}</h3>
+      <h3 class="session-card__title">${viewModel.title} <span class="session-card__id">${viewModel.id}</span></h3>
       <span class="session-card__badge session-card__badge--${accent}">${viewModel.status}</span>
-      <p class="session-card__field session-card__field--total">Total Tokens: <span class="value-badge value-badge--tokens">${fmt(tokenTotal(viewModel.tokens))}</span></p>
-      <p class="session-card__field session-card__field--total">Total Cost: <span class="value-badge value-badge--cost">$${fmtCost(viewModel.cost)}</span></p>
-      <p class="session-card__field">Messages: ${viewModel.messageCount}</p>
-      <p class="session-card__field">Last Activity: ${fmtDate(viewModel.lastActivity)}</p>
-      <div class="session-card__tokens">
-        <p class="session-card__tokens-label">Own Usage</p>
-        <p class="session-card__field">Input: ${fmt(ownTokens.input)}</p>
-        <p class="session-card__field">Output: ${fmt(ownTokens.output)}</p>
-        <p class="session-card__field">Reasoning: ${fmt(ownTokens.reasoning)}</p>
-        <p class="session-card__field">Cache Write: ${fmt(ownTokens.cache.write)}</p>
-        <p class="session-card__field">Cache Read: ${fmt(ownTokens.cache.read)}</p>
-        <p class="session-card__field">Cost: <span class="value-badge value-badge--cost">$${fmtCost(viewModel.ownCost)}</span></p>
-      </div>
+      <p class="session-card__field session-card__field--total">Total Tokens: <span class="value-badge value-badge--tokens">${fmt(tokenTotal(viewModel.tokens))}</span> Total Cost: <span class="value-badge value-badge--cost">$${fmtCost(viewModel.cost)}</span></p>
+      <p class="session-card__field">Messages: <span class="field-value">${viewModel.messageCount}</span> · Last Activity: <span class="field-value">${fmtDate(viewModel.lastActivity)}</span></p>
+      <details>
+        <summary class="session-card__tokens-label">Own Usage</summary>
+        <div class="session-card__tokens">
+          <p class="session-card__field">Input: <span class="field-value">${fmt(ownTokens.input)}</span></p>
+          <p class="session-card__field">Output: <span class="field-value">${fmt(ownTokens.output)}</span></p>
+          <p class="session-card__field">Reasoning: <span class="field-value">${fmt(ownTokens.reasoning)}</span></p>
+          <p class="session-card__field">Cache R/W: <span class="field-value">${fmt(ownTokens.cache.read)}/${fmt(ownTokens.cache.write)}</span></p>
+          <p class="session-card__field">Cost: <span class="value-badge value-badge--cost">$${fmtCost(viewModel.ownCost)}</span></p>
+        </div>
+      </details>
       ${viewModel.children.length > 0
         ? html`<div class="session-card__subsessions">
             <p class="session-card__subsessions-label">Sub-sessions (${viewModel.children.length})</p>

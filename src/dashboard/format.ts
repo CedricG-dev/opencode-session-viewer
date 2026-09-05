@@ -1,8 +1,9 @@
 /** European decimal formatting for cost only: "," instead of "." (e.g. "1,5000"). */
 const LOCALE = "de-DE";
 
-/** Plain integer, no thousands separator (e.g. "1234", not "1.234"). */
-export const fmt = (n: number): string => String(n);
+/** Space-grouped integer thousands separator (e.g. "128 451", not "128451" or "128,451" -- avoids
+ * clashing with fmtCost's own locale-specific separators). */
+export const fmt = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
 export const fmtCost = (n: number): string =>
   n.toLocaleString(LOCALE, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
