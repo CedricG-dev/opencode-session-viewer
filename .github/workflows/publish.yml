@@ -4,6 +4,10 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  id-token: write # required for npm trusted publishing (OIDC)
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -52,11 +56,16 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
 
-      - name: Configure npm registry auth
+      # Trusted publishing (OIDC) requires npm CLI >=11.5.1; bun publish doesn't
+      # support OIDC yet, so the publish step itself uses npm, not bun.
+      - uses: actions/setup-node@v4
         if: steps.verify.outputs.valid == 'true'
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
-      - run: bun publish --access public
+      - run: npm install -g npm@latest
+        if: steps.verify.outputs.valid == 'true'
+
+      - run: npm publish --access public
         if: steps.verify.outputs.valid == 'true'
