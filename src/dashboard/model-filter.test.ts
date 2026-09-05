@@ -27,6 +27,7 @@ function makeVM(id: string, overrides: Partial<ViewModel> = {}): ViewModel {
   return {
     id,
     title: `Session ${id}`,
+    directory: "/tmp/proj",
     status: "idle",
     tokens: ZERO_TOKENS,
     cost: 0,

@@ -23,6 +23,7 @@ function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewMode
   return {
     id,
     title: `Session ${id}`,
+    directory: "/tmp/proj",
     status: "idle",
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,
@@ -93,11 +94,20 @@ describe("dashboard/components/SessionCard", () => {
     ) as VNode<{ children: VNode[] }>;
 
     expect(card.type).toBe("div");
-    const [title, status, totals, meta, ownUsage, subsessions, error] = fields(card);
+    const [title, idPath, status, totals, meta, ownUsage, subsessions, error] = fields(card);
 
     expect((title as VNode).type).toBe("h3");
-    // Title text is followed inline by the session's id (muted, "close to its name").
-    expect(flattenText(title)).toBe("My Session s-1");
+    expect(flattenText(title)).toBe("My Session");
+    // Id/Path share a single line right below the title, both in the same badge look and feel.
+    expect(flattenText(idPath)).toBe("Id: s-1 Path: proj");
+    const [idBadge, pathBadge] = (idPath as VNode<{ children: VNode[] }>).props.children.filter(
+      (child): child is VNode<{ class: string; title?: string }> =>
+        typeof child === "object" && (child as VNode<{ class?: string }>).props?.class === "session-card__path",
+    );
+    expect(idBadge.props.title).toBeUndefined();
+    // The path badge shows just the basename, with the full path as a hover tooltip.
+    expect(pathBadge.props.title).toBe("/tmp/proj");
+
     expect(flattenText(status)).toBe("busy");
     // Rolled-up totals (own + every sub-session's) lead the card, on a single line.
     expect(flattenText(totals)).toBe("Total Tokens: 1 234 Total Cost: $1,5000");
@@ -129,7 +139,7 @@ describe("dashboard/components/SessionCard", () => {
 
   test("Total Tokens/Total Cost/Own Usage Cost values render inside their respective badges", () => {
     const card = SessionCard(makeViewModel("s-1")) as VNode<{ children: VNode[] }>;
-    const [, , totals, , ownUsage] = fields(card) as VNode<{ children: VNode[] }>[];
+    const [, , , totals, , ownUsage] = fields(card) as VNode<{ children: VNode[] }>[];
 
     // Total Tokens/Total Cost share one line: [text, tokensBadge, text, costBadge].
     const tokensBadge = totals.props.children[1] as VNode<{ class: string }>;
@@ -160,7 +170,7 @@ describe("dashboard/components/SessionCard", () => {
       }),
     ) as VNode<{ children: VNode[] }>;
 
-    const panel = fields(card)[5] as VNode<{ children: VNode[] }>;
+    const panel = fields(card)[6] as VNode<{ children: VNode[] }>;
     expect(panel.type).toBe("div");
     const [label, list] = panel.props.children as unknown as [VNode, VNode<{ children: VNode[] }>];
     expect(flattenText(label)).toBe("Sub-sessions (1)");
@@ -191,7 +201,7 @@ describe("dashboard/components/SessionCard", () => {
     // Parent's own accent is unaffected: its card class stays status-based, not "--error".
     expect((card.props as { class?: string }).class).toContain("session-card--idle");
 
-    const panel = fields(card)[5] as VNode<{ children: VNode[] }>;
+    const panel = fields(card)[6] as VNode<{ children: VNode[] }>;
     const [, list] = panel.props.children as unknown as [VNode, VNode<{ children: VNode[] }>];
     const items = list.props.children as unknown as VNode[];
     expect(flattenText(items[0])).toContain("sub boom");
@@ -199,7 +209,34 @@ describe("dashboard/components/SessionCard", () => {
 
   test("no children: the sub-sessions slot is absent entirely (no empty panel)", () => {
     const card = SessionCard(makeViewModel("s-1", { children: [] })) as VNode<{ children: VNode[] }>;
-    expect(fields(card)[5]).toBeNull();
+    expect(fields(card)[6]).toBeNull();
+  });
+
+  test("no models: the models slot is absent entirely (no empty row)", () => {
+    const card = SessionCard(makeViewModel("s-1", { models: [] })) as VNode<{ children: VNode[] }>;
+    expect(fields(card).at(-1)).toBeNull();
+  });
+
+  test("models present: renders one pill per model, at the bottom, in the same look as the filter bar's chips", () => {
+    const card = SessionCard(
+      makeViewModel("s-1", {
+        models: [
+          makeModelUsage({ providerID: "anthropic", modelID: "claude" }),
+          makeModelUsage({ providerID: "openai", modelID: "gpt" }),
+        ],
+      }),
+    ) as VNode<{ children: VNode[] }>;
+
+    const models = fields(card).at(-1) as VNode<{ children: VNode<{ class: string }>[] }>;
+    expect(models.props.class).toBe("session-card__models");
+    const chips = models.props.children;
+    expect(chips.map(flattenText)).toEqual(["anthropic / claude", "openai / gpt"]);
+    // Same class as the top-of-page model filter bar's chips -- a plain display here, not a
+    // control, so no onClick/aria-pressed props (unlike ModelFilterBar's chips).
+    for (const chip of chips) {
+      expect(chip.props.class).toBe("model-filter-chip model-filter-chip--static");
+      expect((chip.props as { onClick?: unknown }).onClick).toBeUndefined();
+    }
   });
 
   test("errorFlag true: renders an error line with errorMessage", () => {
@@ -207,7 +244,7 @@ describe("dashboard/components/SessionCard", () => {
       makeViewModel("s-1", { errorFlag: true, errorMessage: "boom" }),
     ) as VNode<{ children: VNode[] }>;
 
-    const error = fields(card).at(-1);
+    const error = fields(card)[7];
     expect((error as VNode).type).toBe("p");
     expect(flattenText(error)).toBe("boom");
   });
@@ -215,7 +252,7 @@ describe("dashboard/components/SessionCard", () => {
   test("errorFlag true with no errorMessage: error line is present but empty", () => {
     const card = SessionCard(makeViewModel("s-1", { errorFlag: true })) as VNode<{ children: VNode[] }>;
 
-    const error = fields(card).at(-1);
+    const error = fields(card)[7];
     expect((error as VNode).type).toBe("p");
     expect(flattenText(error)).toBe("");
   });
@@ -225,8 +262,8 @@ describe("dashboard/components/SessionCard", () => {
       makeViewModel("s-1", { cost: 0.1, ownCost: 0.2 }),
     ) as VNode<{ children: VNode[] }>;
 
-    expect(flattenText(fields(card)[2])).toContain("Total Cost: $0,1000");
-    const ownUsage = fields(card)[4] as VNode<{ children: VNode[] }>;
+    expect(flattenText(fields(card)[3])).toContain("Total Cost: $0,1000");
+    const ownUsage = fields(card)[5] as VNode<{ children: VNode[] }>;
     const ownFields = (ownUsage.props.children[1] as VNode<{ children: VNode[] }>).props.children;
     expect(flattenText(ownFields.at(-1))).toBe("Cost: $0,2000");
   });

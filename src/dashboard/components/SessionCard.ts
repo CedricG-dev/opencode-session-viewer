@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { tokenTotal, type SubSessionSummary, type ViewModel } from "../../core/view-model.js";
-import { fmt, fmtCost, fmtDate } from "../format.js";
+import { fmt, fmtCost, fmtDate, pathBasename } from "../format.js";
 
 /**
  * One line per sub-session (Design Notes: a sub-session -- `Session.parentID` set, created when a
@@ -37,14 +37,19 @@ function SubSessionItem(sub: SubSessionSummary) {
  *
  * Layout: Total Tokens/Total Cost (rolled up -- own + every sub-session's) lead the card, right
  * after the badge; further down, "Own Usage" shows this session's own contribution only, matching
- * what each sub-session's own row shows for itself (Design Notes).
+ * what each sub-session's own row shows for itself (Design Notes). At the very bottom, every
+ * rolled-up model/provider pair (`viewModel.models`, own + every sub-session's) gets a pill in the
+ * same `.model-filter-chip` shape as the top-of-page model filter bar, with `--static` baking in
+ * its hover look (border/text color) as the resting state -- a plain display here, not a control,
+ * so it has no `onClick`/`aria-pressed` and nothing to hover for.
  */
 export function SessionCard(viewModel: ViewModel) {
   const { ownTokens } = viewModel;
   const accent = viewModel.errorFlag ? "error" : viewModel.status;
   return html`
     <div class="session-card session-card--${accent}">
-      <h3 class="session-card__title">${viewModel.title} <span class="session-card__id">${viewModel.id}</span></h3>
+      <h3 class="session-card__title">${viewModel.title}</h3>
+      <p class="session-card__field">Id: <span class="session-card__path">${viewModel.id}</span> Path: <span class="session-card__path" title=${viewModel.directory}>${pathBasename(viewModel.directory)}</span></p>
       <span class="session-card__badge session-card__badge--${accent}">${viewModel.status}</span>
       <p class="session-card__field session-card__field--total">Total Tokens: <span class="value-badge value-badge--tokens">${fmt(tokenTotal(viewModel.tokens))}</span> Total Cost: <span class="value-badge value-badge--cost">$${fmtCost(viewModel.cost)}</span></p>
       <p class="session-card__field">Messages: <span class="field-value">${viewModel.messageCount}</span> · Last Activity: <span class="field-value">${fmtDate(viewModel.lastActivity)}</span></p>
@@ -67,6 +72,14 @@ export function SessionCard(viewModel: ViewModel) {
           </div>`
         : null}
       ${viewModel.errorFlag ? html`<p class="session-card__error">${viewModel.errorMessage ?? ""}</p>` : null}
+      ${viewModel.models.length > 0
+        ? html`<div class="session-card__models">
+            ${viewModel.models.map(
+              (m) =>
+                html`<span class="model-filter-chip model-filter-chip--static" key=${`${m.providerID}/${m.modelID}`}>${m.providerID} / ${m.modelID}</span>`,
+            )}
+          </div>`
+        : null}
     </div>
   `;
 }

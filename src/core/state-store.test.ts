@@ -84,6 +84,7 @@ describe("state-store", () => {
     expect(getViewModel("s-new")).toEqual({
       id: "s-new",
       title: "Session s-new",
+      directory: "/tmp/proj",
       status: "idle",
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
@@ -208,6 +209,7 @@ describe("state-store", () => {
     expect(getViewModel("s-updated-unknown")).toEqual({
       id: "s-updated-unknown",
       title: "Session s-updated-unknown",
+      directory: "/tmp/proj",
       status: "idle",
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,

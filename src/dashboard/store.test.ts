@@ -19,6 +19,7 @@ function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewMode
   return {
     id,
     title: `Session ${id}`,
+    directory: "/tmp/proj",
     status: "idle",
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,

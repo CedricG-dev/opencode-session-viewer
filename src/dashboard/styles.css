@@ -76,6 +76,15 @@ body {
   color: var(--text);
 }
 
+/** Plain display (`SessionCard`'s used-models row), not a control -- bakes in the filter bar
+ * chip's hover look (border/text color) as the resting state instead of relying on an actual
+ * `:hover`, since there's nothing to hover for here. */
+.model-filter-chip--static {
+  border-color: var(--total);
+  color: var(--text);
+  cursor: default;
+}
+
 .model-filter-chip--active {
   background: color-mix(in srgb, var(--total) 15%, transparent);
   border-color: var(--total);
@@ -271,10 +280,22 @@ body {
   overflow-wrap: anywhere;
 }
 
-.session-card__id {
-  font-weight: 400;
-  font-size: 0.75rem;
+.session-card__models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+}
+
+.session-card__path {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
   color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  /* Hints a tooltip (the full absolute path) is available on hover. */
+  cursor: help;
 }
 
 .model-usage {

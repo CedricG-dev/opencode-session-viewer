@@ -1,7 +1,6 @@
 node_modules/
 dist/
-NPM-DESCRIPTION.md
-RELEASE-NOTES.md
+releasenote.md
 opencode.json
 _bmad-output/
 _bmad/

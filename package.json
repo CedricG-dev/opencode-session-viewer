@@ -4,6 +4,15 @@
   "type": "module",
   "private": false,
   "main": "src/plugin.ts",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "dashboard",
+    "session-viewer",
+    "token-usage",
+    "cost-tracker",
+    "llm"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CedricG-dev/opencode-session-viewer.git"

@@ -108,6 +108,9 @@ export type SubSessionSummary = {
 export type ViewModel = {
   id: string;
   title: string;
+  /** Absolute path opencode was run from (`Session.directory`), for display only. Sub-sessions
+   * always inherit their root's, so it's not repeated per `SubSessionSummary` entry. */
+  directory: string;
   status: SessionStatusValue;
   tokens: TokenBreakdown;
   cost: number;
@@ -218,6 +221,7 @@ export function buildViewModels(sessions: Map<string, SessionState>): ViewModel[
     return {
       id: rootState.session.id,
       title: rootState.session.title,
+      directory: rootState.session.directory,
       status: rootState.status,
       tokens: children.reduce((sum, child) => addTokens(sum, child.tokens), own.tokens),
       cost: children.reduce((sum, child) => sum + child.cost, own.cost),
