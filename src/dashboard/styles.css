@@ -1,0 +1,250 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f5f6f8;
+  --card-bg: #ffffff;
+  --border: #e1e4e8;
+  --text: #1f2328;
+  --text-muted: #6e7781;
+  --idle: #6e7781;
+  --busy: #9a6700;
+  --retry: #0969da;
+  --error: #cf222e;
+  --total: #8250df;
+  --cost: #bc4c00;
+  --tokens: #218bff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --card-bg: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.session-grid__empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.session-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--idle);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.session-card--busy {
+  border-left-color: var(--busy);
+}
+
+.session-card--retry {
+  border-left-color: var(--retry);
+}
+
+.session-card--error {
+  border-left-color: var(--error);
+}
+
+.session-card__title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.session-card__badge {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.session-card__badge--idle {
+  background: color-mix(in srgb, var(--idle) 15%, transparent);
+  color: var(--idle);
+}
+
+.session-card__badge--busy {
+  background: color-mix(in srgb, var(--busy) 15%, transparent);
+  color: var(--busy);
+}
+
+.session-card__badge--retry {
+  background: color-mix(in srgb, var(--retry) 15%, transparent);
+  color: var(--retry);
+}
+
+.session-card__badge--error {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  color: var(--error);
+}
+
+.value-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+}
+
+.value-badge--cost {
+  background: color-mix(in srgb, var(--cost) 15%, transparent);
+  color: var(--cost);
+}
+
+.value-badge--tokens {
+  background: color-mix(in srgb, var(--tokens) 15%, transparent);
+  color: var(--tokens);
+}
+
+.session-card__field {
+  margin: 0.15rem 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.session-card__tokens {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.session-card__field--total {
+  grid-column: 1 / -1;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.session-card__tokens-label {
+  grid-column: 1 / -1;
+  margin: 0 0 0.15rem;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.session-card__subsessions {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+}
+
+.session-card__subsessions-label {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.session-card__subsessions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.session-card__subsession {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.session-card__subsession-arrow {
+  color: var(--text-muted);
+}
+
+.session-card__subsession .session-card__badge {
+  margin: 0;
+}
+
+.session-card__subsession-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.session-card__error {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.aggregate-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--total);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.aggregate-card .session-card__title {
+  font-size: 1.1rem;
+}
+
+.aggregate-card .session-card__tokens {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (min-width: 700px) {
+  .aggregate-card .session-card__tokens {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+[role="status"] {
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error);
+  font-weight: 600;
+}

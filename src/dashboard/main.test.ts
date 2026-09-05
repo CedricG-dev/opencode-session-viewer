@@ -9,17 +9,20 @@ function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewMode
     id,
     title: `Session ${id}`,
     status: "idle",
-    tokens: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,
+    ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    ownCost: 0,
     messageCount: 0,
     lastActivity: new Date(0).toISOString(),
     errorFlag: false,
+    children: [],
     ...overrides,
   };
 }
 
 /** Flattens a vnode's text content (no DOM) by walking `props.children` recursively. Renders
- * function-component vnodes (e.g. `SessionRow`) by invoking them, same as preact would. */
+ * function-component vnodes (e.g. `SessionCard`) by invoking them, same as preact would. */
 function flattenText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -39,65 +42,36 @@ function findByType(children: unknown, type: string): VNode<{ children: unknown 
   return match as VNode<{ children: unknown }>;
 }
 
-/** Renders a function-component vnode (e.g. a `SessionRow` instance in `<tbody>`) the way preact
- * would, so its own `<td>` children can be inspected. */
-function renderVNode(node: VNode): VNode<{ children: unknown }> {
-  if (typeof node.type === "function") {
-    return (node.type as (props: unknown) => VNode<{ children: unknown }>)(node.props);
-  }
-  return node as VNode<{ children: unknown }>;
-}
-
 describe("dashboard/main App", () => {
   afterEach(() => {
     sessions.value = [];
   });
 
-  test("<thead> column order lines up positionally with SessionRow's <td> order", () => {
+  test("renders one SessionCard per session inside .session-grid, in the given order", () => {
     sessions.value = [
-      makeViewModel("s-1", {
-        title: "My Session",
-        status: "busy",
-        messageCount: 4,
-        lastActivity: "2026-09-04T00:00:00.000Z",
-        tokens: 1234,
-        cost: 1.5,
-      }),
+      makeViewModel("s-1", { title: "First" }),
+      makeViewModel("s-2", { title: "Second" }),
     ];
 
     const app = App();
-    const table = findByType(app.props.children, "table");
-    const thead = findByType(table.props.children, "thead");
-    const headerRow = renderVNode(asArray(thead.props.children)[0] as VNode);
-    const labels = asArray(headerRow.props.children).map(flattenText);
+    const grid = findByType(app.props.children, "div");
+    expect((grid.props as { class?: string }).class).toBe("session-grid");
 
-    const tbody = findByType(table.props.children, "tbody");
-    const dataRow = renderVNode(asArray(tbody.props.children)[0] as VNode);
-    const cells = asArray(dataRow.props.children).map(flattenText);
-
-    expect(labels).toEqual(["Title", "Status", "Messages", "Last Activity", "Tokens", "Cost", "Error"]);
-    expect(cells).toEqual(["My Session", "busy", "4", "2026-09-04T00:00:00.000Z", "1,234", "1.5000", ""]);
-    // ^ tokens formatted via .toLocaleString("en-US") -- pinned locale, see SessionRow.ts.
-    // Same length confirms every header has a positionally corresponding data cell.
-    expect(cells).toHaveLength(labels.length);
+    const cards = asArray(grid.props.children as VNode[]);
+    expect(cards).toHaveLength(2);
+    expect(cards.map(flattenText)[0]).toContain("First");
+    expect(cards.map(flattenText)[1]).toContain("Second");
   });
 
-  test("no sessions: an empty-state row spanning all columns renders instead of a blank <tbody>", () => {
+  test("no sessions: an empty-state message renders inside .session-grid instead of a blank grid", () => {
     sessions.value = [];
 
     const app = App();
-    const table = findByType(app.props.children, "table");
-    const thead = findByType(table.props.children, "thead");
-    const headerRow = renderVNode(asArray(thead.props.children)[0] as VNode);
-    const columnCount = asArray(headerRow.props.children).length;
+    const grid = findByType(app.props.children, "div");
+    const empty = grid.props.children as VNode<{ class: string }>;
 
-    const tbody = findByType(table.props.children, "tbody");
-    const emptyRow = asArray(tbody.props.children)[0] as VNode<{ children: unknown }>;
-
-    expect(emptyRow.type).toBe("tr");
-    const cell = asArray(emptyRow.props.children)[0] as VNode<{ colspan: string }>;
-    expect(cell.type).toBe("td");
-    expect(cell.props.colspan).toBe(String(columnCount));
-    expect(flattenText(emptyRow)).toBe("No sessions yet");
+    expect(empty.type).toBe("p");
+    expect(empty.props.class).toBe("session-grid__empty");
+    expect(flattenText(empty)).toBe("No sessions yet");
   });
 });
