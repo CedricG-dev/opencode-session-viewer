@@ -1,6 +1,8 @@
+import { spawn as nodeSpawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import type { Event } from "@opencode-ai/sdk";
-import { startServer } from "./server/http.js";
+import { type AppServer, startServer } from "./server/http.js";
 import { type LockInfo, isPidAlive, readLock, releaseLock, writeLock } from "./server/lock.js";
 import { broadcast, closeAllConnections, handleEventRequest } from "./server/sse.js";
 import {
@@ -53,7 +55,35 @@ export function resolveConfig(options: PluginOptions | undefined): ResolvedConfi
 
 /** `new URL("../dist", import.meta.url)` from this file == project-root `dist/` (Design Notes). */
 export function resolveStaticDir(): string {
-  return Bun.fileURLToPath(new URL("../dist", import.meta.url));
+  return fileURLToPath(new URL("../dist", import.meta.url));
+}
+
+export type SpawnFn = (cmd: string[], options: { stdio: ["ignore", "ignore", "ignore"] }) => { exited: Promise<unknown> };
+
+/** `node:child_process.spawn`, shaped to the one thing `createHandler` needs from it (an
+ * `exited` promise), so it's a drop-in for what used to be `Bun.spawn`. */
+export const spawnDetached: SpawnFn = (cmd, options) => {
+  const [command, ...args] = cmd;
+  const child = nodeSpawn(command!, args, options);
+  return { exited: new Promise((resolve) => child.once("exit", resolve).once("error", resolve)) };
+};
+
+/** Fire-and-forget structured logging into opencode's own log file via `client.app.log()` (the
+ * SDK method opencode's plugin docs document for this exact purpose) — never throws, never
+ * blocks the caller on the log request settling. */
+function log(
+  client: PluginInput["client"],
+  level: "info" | "warn" | "error",
+  message: string,
+  extra?: Record<string, unknown>,
+): void {
+  try {
+    client?.app
+      ?.log({ body: { service: "opencode-session-viewer", level, message, extra } })
+      ?.catch(() => {});
+  } catch {
+    // Logging must never be the reason the plugin fails.
+  }
 }
 
 /**
@@ -87,7 +117,7 @@ export function dispatchEvent(event: Event): string | undefined {
 
 export type PluginDeps = {
   startServer: typeof startServer;
-  spawn: typeof Bun.spawn;
+  spawn: SpawnFn;
   /** Lock-file deps default to no-ops (never join, never persist) so tests that omit them keep the pre-lockfile, always-start-a-server behavior. */
   readLock?: () => LockInfo | undefined;
   writeLock?: (info: LockInfo) => void;
@@ -98,8 +128,8 @@ export type PluginDeps = {
 
 /**
  * Dependency-injected core of the factory, exported so tests can supply fakes for `startServer`/
- * `spawn` without mutating any shared module state (bun:test's `mock.module` mutates the module
- * registry process-wide, leaking across test files — plain parameters avoid that entirely).
+ * `spawn` without mutating any shared module state (a global mock registry mutates process-wide,
+ * leaking across test files — plain parameters avoid that entirely).
  */
 export function createHandler(deps: PluginDeps) {
   const readLockImpl = deps.readLock ?? (() => undefined);
@@ -108,9 +138,10 @@ export function createHandler(deps: PluginDeps) {
   const isPidAliveImpl = deps.isPidAlive ?? (() => false);
   const fetchImpl = deps.fetch ?? fetch;
 
-  return async (_input: PluginInput, options?: PluginOptions): Promise<Hooks> => {
+  return async (input: PluginInput, options?: PluginOptions): Promise<Hooks> => {
+    const { client } = input;
     const config = resolveConfig(options);
-    let server: Bun.Server<undefined> | undefined;
+    let server: AppServer | undefined;
     let remoteBase: string | undefined;
 
     // One server for all sessions (Design Notes): if a live process already owns the lockfile,
@@ -118,9 +149,10 @@ export function createHandler(deps: PluginDeps) {
     const existingLock = readLockImpl();
     if (existingLock && isPidAliveImpl(existingLock.pid)) {
       remoteBase = `http://${existingLock.hostname}:${existingLock.port}`;
+      log(client, "info", "joining existing dashboard server", { remoteBase });
     } else {
       try {
-        server = deps.startServer({
+        server = await deps.startServer({
           hostname: config.hostname,
           port: config.port,
           staticDir: resolveStaticDir(),
@@ -143,8 +175,10 @@ export function createHandler(deps: PluginDeps) {
         // starting in the same instant can both bind a server; the later writeLock just wins and
         // the loser's server leaks until its own dispose(). Add real locking if that race matters.
         writeLockImpl({ hostname: config.hostname, port: Number(server.url.port), pid: process.pid });
-      } catch {
+        log(client, "info", "dashboard server started", { url: server.url.toString() });
+      } catch (error) {
         // Bind/start failed: no server, no lock — this session just has no dashboard.
+        log(client, "warn", "dashboard server failed to start", { error: String(error) });
       }
     }
 
@@ -153,7 +187,7 @@ export function createHandler(deps: PluginDeps) {
     // open from whichever session started it.
     if (server && config.autoLaunch) {
       try {
-        // stdio: ignore avoids the well-documented Bun.spawn gotcha where an inherited/piped
+        // stdio: ignore avoids the well-documented child_process gotcha where an inherited/piped
         // stdio keeps the parent (opencode) process alive after the browser opener exits.
         const subprocess = deps.spawn(resolveOpenCommand(process.platform, server.url.toString()), {
           stdio: ["ignore", "ignore", "ignore"],
@@ -189,6 +223,7 @@ export function createHandler(deps: PluginDeps) {
             closeAllConnections();
             await server.stop(true);
             releaseLockImpl(process.pid);
+            log(client, "info", "dashboard server stopped");
           }
         } catch {
           // Shutdown failed: nothing left to do, the process is exiting anyway.
@@ -198,6 +233,17 @@ export function createHandler(deps: PluginDeps) {
   };
 }
 
-const plugin: Plugin = createHandler({ startServer, spawn: Bun.spawn, readLock, writeLock, releaseLock, isPidAlive });
+const plugin: Plugin = createHandler({ startServer, spawn: spawnDetached, readLock, writeLock, releaseLock, isPidAlive });
 
-export default plugin;
+/**
+ * Default-exports the `{ id, server }` shape (`PluginModule` from `@opencode-ai/plugin`), not a
+ * bare function. opencode's loader (`readV1Plugin`) only recognizes a *record* default export as
+ * a "v1" plugin; a plain function default export fails that check and falls through to a legacy
+ * fallback path that treats every function-valued export in this module (`resolveConfig`,
+ * `createHandler`, `spawnDetached`, ...) as an independent plugin factory and calls each one --
+ * silently corrupting opencode's hook registry even when nothing throws, and hard-crashing when
+ * one does (as `spawnDetached`'s array destructuring does on non-array input). `id` is required
+ * for file-sourced plugins (local dev via `file://...` in `opencode.json`); harmless for the
+ * npm-published path too, where it'd otherwise fall back to `package.json`'s `name`.
+ */
+export default { id: "opencode-session-viewer", server: plugin };

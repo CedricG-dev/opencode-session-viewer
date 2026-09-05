@@ -26,17 +26,19 @@ jobs:
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
 
-      - uses: oven-sh/setup-bun@v2
+      # Node 24 bundles npm 11.19+, which trusted/staged publishing (OIDC) needs (>=11.15.0).
+      - uses: actions/setup-node@v6
         if: steps.verify.outputs.valid == 'true'
         with:
-          bun-version: latest
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
-      - run: bun install --frozen-lockfile
+      - run: npm ci
         if: steps.verify.outputs.valid == 'true'
 
-      - name: Security audit (bun)
+      - name: Security audit (npm)
         if: steps.verify.outputs.valid == 'true'
-        run: bun audit --audit-level=moderate
+        run: npm audit --audit-level=moderate
 
       - name: Security scan (filesystem)
         if: steps.verify.outputs.valid == 'true'
@@ -54,16 +56,6 @@ jobs:
         run: |
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
-
-      # Trusted/staged publishing (OIDC) needs npm CLI >=11.15.0; Node 24
-      # already bundles npm 11.19+, so no manual upgrade is needed. bun
-      # publish doesn't support OIDC yet, so the publish step uses npm, not bun.
-      - uses: actions/setup-node@v6
-        if: steps.verify.outputs.valid == 'true'
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false
 
       # Submits to npm's staging area only. A maintainer must still review and
       # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)

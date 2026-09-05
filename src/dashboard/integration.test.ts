@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import type { ViewModel } from "../core/view-model.js";
-import { startServer } from "../server/http.js";
+import { type AppServer, startServer } from "../server/http.js";
 import { broadcast, closeAllConnections, handleEventRequest } from "../server/sse.js";
 import { connect, connected, sessions, type EventSourceCtor, type EventSourceLike } from "./store.js";
 
@@ -32,7 +32,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
 }
 
 /**
- * Bun (this test runtime) has no global `EventSource` (unlike a browser), so this stands in for
+ * Node (this test runtime) has no global `EventSource` (unlike a browser), so this stands in for
  * it with a real `fetch` against a real server, reading the exact same `data: <json>\n\n` framing
  * `EventSource` would. This is the *only* thing faked -- `connect()` itself, its hardcoded
  * `/event` URL, and `server/http.ts` + `server/sse.ts` are all real, closing the gap where
@@ -78,7 +78,7 @@ function makeEventSourceCtor(base: string): EventSourceCtor {
 }
 
 describe("dashboard/integration", () => {
-  let server: Bun.Server<undefined> | undefined;
+  let server: AppServer | undefined;
 
   afterEach(async () => {
     closeAllConnections();
@@ -90,7 +90,7 @@ describe("dashboard/integration", () => {
 
   test("connect() against a real server: onopen fires, snapshot + broadcast both reach sessions.value", async () => {
     const snapshotSession = makeViewModel("s-existing");
-    server = startServer({
+    server = await startServer({
       hostname: "127.0.0.1",
       port: 0,
       staticDir: "/does-not-matter-for-this-test",

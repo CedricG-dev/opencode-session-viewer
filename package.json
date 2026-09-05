@@ -13,17 +13,19 @@
     "dist"
   ],
   "scripts": {
-    "test": "bun test",
-    "build": "rm -rf dist && bun build ./src/dashboard/index.html --outdir ./dist",
-    "prepublishOnly": "bun run build"
+    "test": "vitest run",
+    "build": "node scripts/build-dashboard.mjs",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.0",
     "@opencode-ai/sdk": "^1.18.0",
     "@preact/signals": "^2.11.1",
+    "esbuild": "^0.25.0",
     "htm": "^3.1.1",
     "preact": "^10.29.8",
     "typescript": "^5",
-    "@types/bun": "^1.4.1"
+    "@types/node": "^24.0.0",
+    "vitest": "^3.0.0"
   }
 }
