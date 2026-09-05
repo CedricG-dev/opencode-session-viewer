@@ -3,9 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "private": false,
+  "main": "src/plugin.ts",
+  "files": [
+    "src",
+    "dist"
+  ],
   "scripts": {
     "test": "bun test",
-    "build": "rm -rf dist && bun build ./src/dashboard/index.html --outdir ./dist"
+    "build": "rm -rf dist && bun build ./src/dashboard/index.html --outdir ./dist",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.18.0",
