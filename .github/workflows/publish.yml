@@ -66,5 +66,8 @@ jobs:
       - run: npm install -g npm@latest
         if: steps.verify.outputs.valid == 'true'
 
-      - run: npm publish --access public
+      # Submits to npm's staging area only. A maintainer must still review and
+      # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)
+      # before the version actually goes live on the registry.
+      - run: npm stage publish
         if: steps.verify.outputs.valid == 'true'

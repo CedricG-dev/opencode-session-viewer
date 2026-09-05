@@ -11,7 +11,17 @@
 - Triggers on `v*` tags pushed to main branch
 - Runs security scans (npm audit + Trivy)
 - Automatically sets npm version from tag name
-- Publishes to npmjs.com under `@cedricg-dev` scope via [trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) — no npm token involved
+- Submits the release to npm's [staged publishing](https://docs.npmjs.com/staged-publishing) area via [trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) — no npm token involved
+
+## Approving a release
+
+The workflow only stages the package — it does not go live automatically. After a tag push succeeds:
+
+1. Go to the package's **Staged Packages** tab on npmjs.com (or run `npm stage list @cedricg-dev/opencode-session-viewer`).
+2. Review the staged version.
+3. Approve it with 2FA: click **Approve** on npmjs.com, or run `npm stage approve <stage-id>` locally.
+
+The version isn't published to the registry until this manual approval step is done.
 
 ## Requirements
 
