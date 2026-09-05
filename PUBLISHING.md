@@ -11,13 +11,13 @@
 - Triggers on `v*` tags pushed to main branch
 - Runs security scans (npm audit + Trivy)
 - Automatically sets npm version from tag name
-- Publishes to npmjs.com under `@cedricg-dev` scope
+- Publishes to npmjs.com under `@cedricg-dev` scope via [trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) — no npm token involved
 
 ## Requirements
 
 - Tag must point to a commit on the `main` branch
 - `package.json` must have `"private": false`
-- npm token (`NPM_TOKEN` GitHub secret) with publish permissions
+- A trusted publisher configured on npmjs.com for this package, pointing at this repo and the `publish.yml` workflow filename (Package Settings → Trusted Publisher)
 
 ## Security
 
