@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startServer } from "./http.js";
+import { type AppServer, startServer } from "./http.js";
 
 describe("server/http", () => {
   let staticDir: string;
-  let server: Bun.Server<undefined> | undefined;
+  let server: AppServer | undefined;
 
   beforeEach(async () => {
     staticDir = await mkdtemp(join(tmpdir(), "session-viewer-http-"));
@@ -19,8 +19,8 @@ describe("server/http", () => {
   });
 
   test("requested static file exists: GET /index.html present under staticDir returns 200 with content", async () => {
-    await Bun.write(join(staticDir, "index.html"), "<h1>hi</h1>");
-    server = startServer({ hostname: "127.0.0.1", port: 0, staticDir });
+    await writeFile(join(staticDir, "index.html"), "<h1>hi</h1>");
+    server = await startServer({ hostname: "127.0.0.1", port: 0, staticDir });
 
     const response = await fetch(new URL("/index.html", server.url));
 
@@ -29,8 +29,8 @@ describe("server/http", () => {
   });
 
   test("'/' maps to index.html", async () => {
-    await Bun.write(join(staticDir, "index.html"), "<h1>root</h1>");
-    server = startServer({ hostname: "127.0.0.1", port: 0, staticDir });
+    await writeFile(join(staticDir, "index.html"), "<h1>root</h1>");
+    server = await startServer({ hostname: "127.0.0.1", port: 0, staticDir });
 
     const response = await fetch(server.url);
 
@@ -39,7 +39,7 @@ describe("server/http", () => {
   });
 
   test("requested file missing: GET any path with no matching file returns 404", async () => {
-    server = startServer({ hostname: "127.0.0.1", port: 0, staticDir });
+    server = await startServer({ hostname: "127.0.0.1", port: 0, staticDir });
 
     const response = await fetch(new URL("/missing.js", server.url));
 
@@ -47,7 +47,7 @@ describe("server/http", () => {
   });
 
   test("staticDir absent: GET any path returns 404, never throws", async () => {
-    server = startServer({
+    server = await startServer({
       hostname: "127.0.0.1",
       port: 0,
       staticDir: join(staticDir, "does-not-exist"),
@@ -59,7 +59,7 @@ describe("server/http", () => {
   });
 
   test("GET /event delegates to onEventRequest instead of static serving", async () => {
-    server = startServer({
+    server = await startServer({
       hostname: "127.0.0.1",
       port: 0,
       staticDir,
@@ -73,7 +73,7 @@ describe("server/http", () => {
   });
 
   test("POST /event falls through to static serving (404), never hits onEventRequest", async () => {
-    server = startServer({
+    server = await startServer({
       hostname: "127.0.0.1",
       port: 0,
       staticDir,

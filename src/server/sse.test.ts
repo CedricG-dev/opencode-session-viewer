@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import type { ViewModel } from "../core/view-model.js";
 import { broadcast, closeAllConnections, handleEventRequest } from "./sse.js";
 

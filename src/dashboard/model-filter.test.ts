@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ModelUsage, SubSessionSummary, ViewModel } from "../core/view-model.js";
 import { filterViewModels, modelFilterKey } from "./model-filter.js";
 

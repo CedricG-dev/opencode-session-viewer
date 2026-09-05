@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import type { VNode } from "preact";
 import type { ModelUsage, SubSessionSummary, ViewModel } from "../../core/view-model.js";
 import { sessions, connected, selectedModelKeys } from "../store.js";

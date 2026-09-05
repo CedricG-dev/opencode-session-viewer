@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PluginInput } from "@opencode-ai/plugin";
 import type { Event, Session } from "@opencode-ai/sdk";
 import { getViewModel } from "./core/state-store.js";
 import { closeAllConnections } from "./server/sse.js";
-import type { StartServerOptions } from "./server/http.js";
+import type { AppServer, StartServerOptions } from "./server/http.js";
 import {
   createHandler,
   dispatchEvent,
@@ -13,6 +13,7 @@ import {
   resolveOpenCommand,
   resolveStaticDir,
   type PluginDeps,
+  type SpawnFn,
 } from "./plugin.js";
 
 type LogCall = { service: string; level: string; message: string };
@@ -30,14 +31,14 @@ function makeClient(): { client: PluginInput["client"]; logs: LogCall[] } {
   return { client, logs };
 }
 
-function fakeServer(stopped: { count: number }, stopArgs: unknown[] = []): Bun.Server<undefined> {
+function fakeServer(stopped: { count: number }, stopArgs: unknown[] = []): AppServer {
   return {
     url: new URL("http://127.0.0.1:12345/"),
     async stop(closeActiveConnections?: boolean) {
       stopped.count += 1;
       stopArgs.push(closeActiveConnections);
     },
-  } as unknown as Bun.Server<undefined>;
+  };
 }
 
 function makeSession(id: string): Session {
@@ -59,8 +60,8 @@ async function readSseMessage(reader: ReadableStreamDefaultReader<Uint8Array>): 
   return JSON.parse(line.slice("data: ".length, line.indexOf("\n\n")));
 }
 
-function fakeSubprocess(exitCode: number): ReturnType<typeof Bun.spawn> {
-  return { exited: Promise.resolve(exitCode) } as unknown as ReturnType<typeof Bun.spawn>;
+function fakeSubprocess(exitCode: number): ReturnType<SpawnFn> {
+  return { exited: Promise.resolve(exitCode) };
 }
 
 /** Lets the fire-and-forget `subprocess.exited.then(...)` chain in plugin.ts settle before assertions. */
@@ -231,7 +232,7 @@ describe("plugin factory", () => {
           async stop() {
             throw new Error("stop failed");
           },
-        }) as unknown as Bun.Server<undefined>,
+        }) as AppServer,
       spawn: () => fakeSubprocess(0),
     };
 

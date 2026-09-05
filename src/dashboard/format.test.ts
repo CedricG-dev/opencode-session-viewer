@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { fmt, fmtCost, fmtDate } from "./format.js";
 
 describe("fmt", () => {
