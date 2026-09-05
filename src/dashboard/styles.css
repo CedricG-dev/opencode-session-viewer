@@ -10,8 +10,10 @@
   --retry: #0969da;
   --error: #cf222e;
   --total: #8250df;
-  --cost: #bc4c00;
-  --tokens: #218bff;
+  /* Green reads as "money" at a glance and stays clearly apart from --busy's amber. */
+  --cost: #1a7f37;
+  /* Cyan, not blue -- --retry is already blue, keeping tokens visually distinct from it. */
+  --tokens: #0891b2;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,12 +39,55 @@ body {
     system-ui,
     -apple-system,
     "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
     sans-serif;
+}
+
+.app-title {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.model-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.model-filter-chip {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.model-filter-chip:hover {
+  border-color: var(--total);
+  color: var(--text);
+}
+
+.model-filter-chip--active {
+  background: color-mix(in srgb, var(--total) 15%, transparent);
+  border-color: var(--total);
+  color: var(--total);
+  font-weight: 600;
 }
 
 .session-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  /* auto-fit (not auto-fill): collapses empty tracks so a handful of cards stretch to fill the
+   * row instead of leaving a dead gap when there are fewer sessions than columns. */
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -115,6 +160,10 @@ body {
   display: inline-block;
   padding: 0.1rem 0.55rem;
   border-radius: 999px;
+  /* Own weight, not inherited -- a badge's boldness previously depended on whether its ancestor
+   * happened to be a `--total` field, so the same badge looked bold in one card and normal in
+   * another purely by accident of nesting. */
+  font-weight: 600;
 }
 
 .value-badge--cost {
@@ -133,10 +182,25 @@ body {
   color: var(--text-muted);
 }
 
+/** The value half of a "Label: value" field -- crisp/full-contrast against the muted label, so a
+ * scan of the card can tell numbers apart from labels at a glance. */
+.field-value,
+.value-badge {
+  /* Fixed-width digits so a column of numbers lines up while scanning -- matters more here than
+   * anywhere else in the app since almost every value on screen is a token count or a cost. */
+  font-variant-numeric: tabular-nums;
+}
+
+.field-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .session-card__tokens {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 1rem;
   margin: 0.5rem 0;
   padding: 0.5rem 0;
   border-top: 1px solid var(--border);
@@ -144,19 +208,20 @@ body {
 }
 
 .session-card__field--total {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   font-weight: 600;
   color: var(--text);
 }
 
 .session-card__tokens-label {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   margin: 0 0 0.15rem;
   text-transform: uppercase;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--text-muted);
+  cursor: pointer;
 }
 
 .session-card__subsessions {
@@ -206,6 +271,52 @@ body {
   overflow-wrap: anywhere;
 }
 
+.session-card__id {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.model-usage {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+}
+
+.model-usage-label {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.model-usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.model-usage-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.model-usage-name {
+  overflow-wrap: anywhere;
+}
+
 .session-card__error {
   margin: 0.5rem 0 0;
   padding: 0.5rem;
@@ -227,16 +338,6 @@ body {
 
 .aggregate-card .session-card__title {
   font-size: 1.1rem;
-}
-
-.aggregate-card .session-card__tokens {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-@media (min-width: 700px) {
-  .aggregate-card .session-card__tokens {
-    grid-template-columns: repeat(6, 1fr);
-  }
 }
 
 [role="status"] {

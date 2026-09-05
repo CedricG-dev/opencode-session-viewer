@@ -59,6 +59,7 @@ function makeAssistantMessage(
   messageID: string,
   cost: number,
   tokens: number,
+  overrides: { modelID?: string; providerID?: string } = {},
 ): EventMessageUpdated {
   const message: AssistantMessage = {
     id: messageID,
@@ -66,8 +67,8 @@ function makeAssistantMessage(
     role: "assistant",
     time: { created: 1 },
     parentID: "user-1",
-    modelID: "model-1",
-    providerID: "provider-1",
+    modelID: overrides.modelID ?? "model-1",
+    providerID: overrides.providerID ?? "provider-1",
     mode: "build",
     path: { cwd: "/tmp/proj", root: "/tmp/proj" },
     cost,
@@ -86,8 +87,10 @@ describe("state-store", () => {
       status: "idle",
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
+      models: [],
       ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       ownCost: 0,
+      ownModels: [],
       messageCount: 0,
       lastActivity: new Date(1).toISOString(),
       errorFlag: false,
@@ -208,8 +211,10 @@ describe("state-store", () => {
       status: "idle",
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
+      models: [],
       ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       ownCost: 0,
+      ownModels: [],
       messageCount: 0,
       lastActivity: new Date(1).toISOString(),
       errorFlag: false,
@@ -439,6 +444,89 @@ describe("state-store", () => {
 
       const children = getViewModel("s-parent-6")?.children.map((child) => child.id);
       expect(children).toEqual(["s-child-earlier", "s-child-later"]);
+    });
+  });
+
+  describe("model/provider breakdown", () => {
+    test("messages from the same model/provider are grouped into one ModelUsage entry", () => {
+      handleSessionCreated(makeSessionCreated("s-model-same"));
+      handleMessageUpdated(makeAssistantMessage("m1", "s-model-same", "msg-1", 0.01, 10));
+      handleMessageUpdated(makeAssistantMessage("m2", "s-model-same", "msg-2", 0.02, 20));
+
+      const vm = getViewModel("s-model-same");
+      expect(vm?.models).toEqual([
+        {
+          providerID: "provider-1",
+          modelID: "model-1",
+          tokens: { input: 30, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          cost: 0.03,
+        },
+      ]);
+      expect(vm?.ownModels).toEqual(vm?.models);
+    });
+
+    test("messages from different models produce separate entries, sorted by cost descending", () => {
+      handleSessionCreated(makeSessionCreated("s-model-diff"));
+      handleMessageUpdated(
+        makeAssistantMessage("m1", "s-model-diff", "msg-1", 0.01, 10, { providerID: "p-a", modelID: "cheap" }),
+      );
+      handleMessageUpdated(
+        makeAssistantMessage("m2", "s-model-diff", "msg-2", 0.5, 100, { providerID: "p-b", modelID: "pricey" }),
+      );
+
+      const models = getViewModel("s-model-diff")?.models;
+      expect(models?.map((m) => `${m.providerID}/${m.modelID}`)).toEqual(["p-b/pricey", "p-a/cheap"]);
+    });
+
+    test("a repeated message.updated for the same messageID replaces its model contribution, no double-count", () => {
+      handleSessionCreated(makeSessionCreated("s-model-replace"));
+      handleMessageUpdated(makeAssistantMessage("m1", "s-model-replace", "msg-1", 0.01, 10));
+      handleMessageUpdated(makeAssistantMessage("m1", "s-model-replace", "msg-1", 0.05, 50));
+
+      const models = getViewModel("s-model-replace")?.models;
+      expect(models).toEqual([
+        {
+          providerID: "provider-1",
+          modelID: "model-1",
+          tokens: { input: 50, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          cost: 0.05,
+        },
+      ]);
+    });
+
+    test("parent's models = its own + every child's, merged by providerID/modelID, never double-counted", () => {
+      handleSessionCreated(makeSessionCreated("s-model-parent"));
+      handleSessionCreated(makeSessionCreated("s-model-child", { parentID: "s-model-parent" }));
+      handleMessageUpdated(makeAssistantMessage("m1", "s-model-parent", "msg-parent", 0.01, 10));
+      handleMessageUpdated(makeAssistantMessage("m2", "s-model-child", "msg-child", 0.02, 20));
+
+      const vm = getViewModel("s-model-parent");
+      // Same model/provider on both own + child: merged into one entry, summed.
+      expect(vm?.models).toEqual([
+        {
+          providerID: "provider-1",
+          modelID: "model-1",
+          tokens: { input: 30, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          cost: 0.03,
+        },
+      ]);
+      // ownModels stays the parent's own contribution only.
+      expect(vm?.ownModels).toEqual([
+        {
+          providerID: "provider-1",
+          modelID: "model-1",
+          tokens: { input: 10, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          cost: 0.01,
+        },
+      ]);
+      expect(vm?.children[0]?.models).toEqual([
+        {
+          providerID: "provider-1",
+          modelID: "model-1",
+          tokens: { input: 20, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          cost: 0.02,
+        },
+      ]);
     });
   });
 });

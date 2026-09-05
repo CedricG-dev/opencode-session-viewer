@@ -1,5 +1,6 @@
 import { computed, signal } from "@preact/signals";
-import type { TokenBreakdown, ViewModel } from "../core/view-model.js";
+import { mergeModelUsage, type ModelUsage, type TokenBreakdown, type ViewModel } from "../core/view-model.js";
+import { filterViewModels } from "./model-filter.js";
 
 /** Client-side read model, hydrated exclusively from the SSE stream -- never derives a new fact
  * beyond `aggregateCost`/`aggregateTokens`'s trivial display-only sums (AD-2). */
@@ -29,6 +30,37 @@ export const aggregateTokens = computed<TokenBreakdown>(() =>
     { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   ),
 );
+
+/** Per-model/provider sum of each session's already-authoritative `models` (rolled-up total) --
+ * same trivial display-only merge as `aggregateCost`/`aggregateTokens` (AD-2), reusing core's own
+ * merge logic rather than re-deriving the grouping-by-key here. */
+export const aggregateModels = computed<ModelUsage[]>(() =>
+  mergeModelUsage(sessions.value.map((session) => session.models)),
+);
+
+/** Model/provider filter for the session grid only -- empty means "All" (CAP: never affects
+ * `aggregateCost`/`aggregateTokens`/`aggregateModels` above, which stay wired to raw `sessions`). */
+export const selectedModelKeys = signal<Set<string>>(new Set());
+
+/** What the session grid actually renders -- `sessions` re-summed/filtered down to
+ * `selectedModelKeys` (`model-filter.ts`'s `filterViewModels`, itself a trivial display-only
+ * re-sum of already-reported per-model data, per AD-2). */
+export const filteredSessions = computed<ViewModel[]>(() =>
+  filterViewModels(sessions.value, selectedModelKeys.value),
+);
+
+/** Always replaces with a new `Set` (never mutates in place) so the signal's reference-equality
+ * check reliably notifies subscribers. */
+export function toggleModelFilter(key: string): void {
+  const next = new Set(selectedModelKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  selectedModelKeys.value = next;
+}
+
+export function clearModelFilter(): void {
+  selectedModelKeys.value = new Set();
+}
 
 /** Snapshot (array) fully replaces the list; delta (single object) replaces that session by `id`,
  * appending when the `id` is unseen (AD-7). */

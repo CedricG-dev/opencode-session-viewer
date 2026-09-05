@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { fmt, fmtCost, fmtDate } from "./format.js";
 
 describe("fmt", () => {
-  test("plain integer, no thousands separator", () => {
-    expect(fmt(1234)).toBe("1234");
+  test("space-grouped thousands separator", () => {
+    expect(fmt(1234)).toBe("1 234");
+    expect(fmt(128451)).toBe("128 451");
     expect(fmt(0)).toBe("0");
+    expect(fmt(999)).toBe("999");
   });
 });
 
