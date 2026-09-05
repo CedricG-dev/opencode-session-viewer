@@ -4,6 +4,10 @@
   "type": "module",
   "private": false,
   "main": "src/plugin.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CedricG-dev/opencode-session-viewer.git"
+  },
   "files": [
     "src",
     "dist"
