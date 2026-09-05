@@ -11,14 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v5
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: latest
 
-      - run: npm ci
+      - run: bun install --frozen-lockfile
 
-      - name: npm audit
-        run: npm audit --production --audit-level=moderate
+      - name: bun audit
+        run: bun audit --audit-level=moderate
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master

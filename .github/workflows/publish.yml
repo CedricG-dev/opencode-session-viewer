@@ -23,18 +23,17 @@ jobs:
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/setup-node@v5
+      - uses: oven-sh/setup-bun@v2
         if: steps.verify.outputs.valid == 'true'
         with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          bun-version: latest
 
-      - run: npm ci
+      - run: bun install --frozen-lockfile
         if: steps.verify.outputs.valid == 'true'
 
-      - name: Security audit (npm dependencies)
+      - name: Security audit (bun)
         if: steps.verify.outputs.valid == 'true'
-        run: npm audit --production --audit-level=moderate
+        run: bun audit --audit-level=moderate
 
       - name: Security scan (filesystem)
         if: steps.verify.outputs.valid == 'true'
@@ -53,7 +52,11 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
 
-      - run: npm publish
+      - name: Configure npm registry auth
         if: steps.verify.outputs.valid == 'true'
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - run: bun publish --access public
+        if: steps.verify.outputs.valid == 'true'
