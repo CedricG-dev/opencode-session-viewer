@@ -5,3 +5,5 @@ RELEASE-NOTES.md
 opencode.json
 _bmad-output/
 _bmad/
+.agents/
+.opencode/
