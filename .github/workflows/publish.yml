@@ -14,14 +14,43 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       
+
+      - name: Verify tag is on main
+        id: verify
+        run: |
+          git fetch origin +main:refs/remotes/origin/main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Tag is not on main branch"
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
       - uses: oven-sh/setup-bun@v2
+        if: steps.verify.outputs.valid == 'true'
         with:
           bun-version: latest
 
       - run: bun install --frozen-lockfile
-             
+        if: steps.verify.outputs.valid == 'true'
+
+      - name: Security audit (bun)
+        if: steps.verify.outputs.valid == 'true'
+        run: bun audit --audit-level=moderate
+
+      - name: Security scan (filesystem)
+        if: steps.verify.outputs.valid == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
 
       - name: Set version from tag
+        if: steps.verify.outputs.valid == 'true'
         run: |
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
@@ -30,11 +59,14 @@ jobs:
       # already bundles npm 11.19+, so no manual upgrade is needed. bun
       # publish doesn't support OIDC yet, so the publish step uses npm, not bun.
       - uses: actions/setup-node@v6
+        if: steps.verify.outputs.valid == 'true'
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
-
+      # Submits to npm's staging area only. A maintainer must still review and
+      # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)
+      # before the version actually goes live on the registry.
       - run: npm stage publish
-        
+        if: steps.verify.outputs.valid == 'true' 
