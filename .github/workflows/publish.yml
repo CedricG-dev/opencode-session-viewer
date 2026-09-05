@@ -1,0 +1,59 @@
+name: Publish to npm
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        id: verify
+        run: |
+          git fetch origin main
+          if git branch --contains HEAD | grep -q "main"; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Tag is not on main branch"
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.verify.outputs.valid == 'true'
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+        if: steps.verify.outputs.valid == 'true'
+
+      - name: Security audit (npm dependencies)
+        if: steps.verify.outputs.valid == 'true'
+        run: npm audit --production --audit-level=moderate
+
+      - name: Security scan (filesystem)
+        if: steps.verify.outputs.valid == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Set version from tag
+        if: steps.verify.outputs.valid == 'true'
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          npm version $TAG --no-git-tag-version
+
+      - run: npm publish
+        if: steps.verify.outputs.valid == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

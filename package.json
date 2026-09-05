@@ -1,8 +1,8 @@
 {
-  "name": "opencode-session-viewer",
+  "name": "@cedricg-dev/opencode-session-viewer",
   "version": "0.1.0",
   "type": "module",
-  "private": true,
+  "private": false,
   "scripts": {
     "test": "bun test",
     "build": "rm -rf dist && bun build ./src/dashboard/index.html --outdir ./dist"
