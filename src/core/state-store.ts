@@ -7,7 +7,7 @@ import type {
   EventMessageUpdated,
 } from "@opencode-ai/sdk";
 import type { SessionState, ViewModel } from "./view-model.js";
-import { deriveViewModel } from "./view-model.js";
+import { buildViewModels } from "./view-model.js";
 
 /** Module-private, in-memory read model. Starts empty; populated only by the handlers below (AD-2). */
 const sessions = new Map<string, SessionState>();
@@ -75,18 +75,18 @@ export function handleMessageUpdated(event: EventMessageUpdated): void {
   state.messages.set(message.id, message);
 }
 
-/**
- * Sorted by session creation time ascending, so the list order is stable and chronological.
- * Ties (identical `time.created`) break on `id` ascending, so the order is deterministic rather
- * than relying incidentally on `Array.prototype.sort`'s stability guarantee.
- */
+/** One root-level `ViewModel` per top-level session; sub-sessions are nested under `.children`
+ * instead (`buildViewModels`'s doc comment covers the sort/rollup rules). */
 export function getViewModels(): ViewModel[] {
-  return Array.from(sessions.values())
-    .sort((a, b) => a.session.time.created - b.session.time.created || a.session.id.localeCompare(b.session.id))
-    .map(deriveViewModel);
+  return buildViewModels(sessions);
 }
 
+/**
+ * Looks up by root id or by any nested sub-session id -- a `message.updated` (etc.) for a
+ * sub-session resolves to its root's updated `ViewModel`, so `plugin.ts` broadcasting
+ * `getViewModel(event's sessionID)` naturally updates the parent card, never a standalone one for
+ * the sub-session itself.
+ */
 export function getViewModel(id: string): ViewModel | undefined {
-  const state = sessions.get(id);
-  return state ? deriveViewModel(state) : undefined;
+  return buildViewModels(sessions).find((vm) => vm.id === id || vm.children.some((child) => child.id === id));
 }

@@ -7,11 +7,14 @@ function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewMode
     id,
     title: `Session ${id}`,
     status: "idle",
-    tokens: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,
+    ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    ownCost: 0,
     messageCount: 0,
     lastActivity: new Date(0).toISOString(),
     errorFlag: false,
+    children: [],
     ...overrides,
   };
 }

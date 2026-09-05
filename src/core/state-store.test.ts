@@ -84,12 +84,15 @@ describe("state-store", () => {
       id: "s-new",
       title: "Session s-new",
       status: "idle",
-      tokens: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
+      ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      ownCost: 0,
       messageCount: 0,
       lastActivity: new Date(1).toISOString(),
       errorFlag: false,
       errorMessage: undefined,
+      children: [],
     });
   });
 
@@ -124,7 +127,7 @@ describe("state-store", () => {
 
     const vm = getViewModel("s-stream");
     expect(vm?.cost).toBe(0.05);
-    expect(vm?.tokens).toBe(50);
+    expect(vm?.tokens.input).toBe(50);
     expect(vm?.messageCount).toBe(1);
   });
 
@@ -203,12 +206,15 @@ describe("state-store", () => {
       id: "s-updated-unknown",
       title: "Session s-updated-unknown",
       status: "idle",
-      tokens: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
+      ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      ownCost: 0,
       messageCount: 0,
       lastActivity: new Date(1).toISOString(),
       errorFlag: false,
       errorMessage: undefined,
+      children: [],
     });
   });
 
@@ -256,9 +262,42 @@ describe("state-store", () => {
     handleMessageUpdated(makeAssistantMessage("m1", "s-mixed-messages", "assistant-msg-1", 0.04, 40));
 
     const vm = getViewModel("s-mixed-messages");
-    expect(vm?.tokens).toBe(40);
+    expect(vm?.tokens.input).toBe(40);
     expect(vm?.cost).toBe(0.04);
     expect(vm?.messageCount).toBe(2);
+  });
+
+  test("token breakdown: input/output/reasoning/cache.read/cache.write each sum independently across messages", () => {
+    handleSessionCreated(makeSessionCreated("s-token-breakdown"));
+
+    const message = (messageID: string, tokens: AssistantMessage["tokens"]): EventMessageUpdated => ({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: messageID,
+          sessionID: "s-token-breakdown",
+          role: "assistant",
+          time: { created: 1 },
+          parentID: "user-1",
+          modelID: "model-1",
+          providerID: "provider-1",
+          mode: "build",
+          path: { cwd: "/tmp/proj", root: "/tmp/proj" },
+          cost: 0,
+          tokens,
+        },
+      },
+    });
+
+    handleMessageUpdated(message("msg-1", { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } }));
+    handleMessageUpdated(message("msg-2", { input: 1, output: 2, reasoning: 3, cache: { read: 4, write: 5 } }));
+
+    expect(getViewModel("s-token-breakdown")?.tokens).toEqual({
+      input: 11,
+      output: 22,
+      reasoning: 33,
+      cache: { read: 44, write: 55 },
+    });
   });
 
   test("extractErrorMessage fallback: no string message in error.data falls back to error.name", () => {
@@ -315,5 +354,91 @@ describe("state-store", () => {
     const ids = getViewModels().map((vm) => vm.id);
 
     expect(ids.indexOf("s-tie-a")).toBeLessThan(ids.indexOf("s-tie-b"));
+  });
+
+  describe("sub-sessions (parentID)", () => {
+    test("a session with a tracked parentID is nested under its parent, not returned as its own top-level entry", () => {
+      handleSessionCreated(makeSessionCreated("s-parent"));
+      handleSessionCreated(makeSessionCreated("s-child", { parentID: "s-parent" }));
+
+      const all = getViewModels();
+      expect(all.some((vm) => vm.id === "s-child")).toBe(false);
+      expect(all.find((vm) => vm.id === "s-parent")?.children.map((child) => child.id)).toEqual(["s-child"]);
+    });
+
+    test("parent's tokens/cost = its own + every child's, each summed exactly once", () => {
+      handleSessionCreated(makeSessionCreated("s-parent-2"));
+      handleSessionCreated(makeSessionCreated("s-child-2", { parentID: "s-parent-2" }));
+      handleMessageUpdated(makeAssistantMessage("m1", "s-parent-2", "msg-parent", 1, 100));
+      handleMessageUpdated(makeAssistantMessage("m2", "s-child-2", "msg-child", 2, 200));
+
+      const vm = getViewModel("s-parent-2");
+      expect(vm?.cost).toBe(3);
+      expect(vm?.tokens.input).toBe(300);
+      // ownCost/ownTokens stay the parent's own contribution only -- never rolled up, unlike
+      // cost/tokens -- so the card's "own usage" section never double-counts a child's own row.
+      expect(vm?.ownCost).toBe(1);
+      expect(vm?.ownTokens.input).toBe(100);
+      // The parent's own messageCount is its own conversation only -- the child's count is on its
+      // own `children` entry, not rolled into the parent's.
+      expect(vm?.messageCount).toBe(1);
+      expect(vm?.children[0]?.messageCount).toBe(1);
+      expect(vm?.children[0]?.cost).toBe(2);
+      expect(vm?.children[0]?.tokens.input).toBe(200);
+    });
+
+    test("getViewModel(childId) returns the parent's (root's) ViewModel, not a standalone one for the child", () => {
+      handleSessionCreated(makeSessionCreated("s-parent-3"));
+      handleSessionCreated(makeSessionCreated("s-child-3", { parentID: "s-parent-3" }));
+
+      expect(getViewModel("s-child-3")?.id).toBe("s-parent-3");
+      expect(getViewModel("s-child-3")).toEqual(getViewModel("s-parent-3"));
+    });
+
+    test("a child's own errorFlag never escalates the parent's own errorFlag/status", () => {
+      handleSessionCreated(makeSessionCreated("s-parent-4"));
+      handleSessionCreated(makeSessionCreated("s-child-4", { parentID: "s-parent-4" }));
+      handleSessionError({
+        type: "session.error",
+        properties: { sessionID: "s-child-4", error: { name: "UnknownError", data: { message: "child boom" } } },
+      });
+
+      const vm = getViewModel("s-parent-4");
+      expect(vm?.errorFlag).toBe(false);
+      expect(vm?.children[0]?.errorFlag).toBe(true);
+      expect(vm?.children[0]?.errorMessage).toBe("child boom");
+    });
+
+    test("orphaned sub-session (parentID references an untracked session) is promoted to its own root", () => {
+      handleSessionCreated(makeSessionCreated("s-orphan", { parentID: "s-never-tracked" }));
+
+      const vm = getViewModel("s-orphan");
+      expect(vm?.id).toBe("s-orphan");
+      expect(vm?.children).toEqual([]);
+    });
+
+    test("multi-level chain (grandchild) flattens into the top-most root's children, not nested further", () => {
+      handleSessionCreated(makeSessionCreated("s-grandparent"));
+      handleSessionCreated(makeSessionCreated("s-parent-5", { parentID: "s-grandparent" }));
+      handleSessionCreated(makeSessionCreated("s-grandchild", { parentID: "s-parent-5" }));
+
+      const all = getViewModels();
+      expect(all.some((vm) => vm.id === "s-parent-5" || vm.id === "s-grandchild")).toBe(false);
+      const grandparent = all.find((vm) => vm.id === "s-grandparent");
+      expect(grandparent?.children.map((child) => child.id).sort()).toEqual(["s-grandchild", "s-parent-5"]);
+    });
+
+    test("children are sorted by session creation time ascending, same tie-break rules as top-level", () => {
+      handleSessionCreated(makeSessionCreated("s-parent-6"));
+      handleSessionCreated(
+        makeSessionCreated("s-child-later", { parentID: "s-parent-6", time: { created: 200, updated: 200 } }),
+      );
+      handleSessionCreated(
+        makeSessionCreated("s-child-earlier", { parentID: "s-parent-6", time: { created: 100, updated: 100 } }),
+      );
+
+      const children = getViewModel("s-parent-6")?.children.map((child) => child.id);
+      expect(children).toEqual(["s-child-earlier", "s-child-later"]);
+    });
   });
 });

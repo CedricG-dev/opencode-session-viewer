@@ -1,17 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ViewModel } from "../core/view-model.js";
-import { applyPayload, connect, connected, sessions, aggregateCost, type EventSourceLike } from "./store.js";
+import { applyPayload, connect, connected, sessions, aggregateCost, aggregateTokens, type EventSourceLike } from "./store.js";
 
 function makeViewModel(id: string, overrides: Partial<ViewModel> = {}): ViewModel {
   return {
     id,
     title: `Session ${id}`,
     status: "idle",
-    tokens: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     cost: 0,
+    ownTokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    ownCost: 0,
     messageCount: 0,
     lastActivity: new Date(0).toISOString(),
     errorFlag: false,
+    children: [],
     ...overrides,
   };
 }
@@ -136,6 +139,24 @@ describe("dashboard/store", () => {
       expect(aggregateCost.value).toBe(1);
       applyPayload(makeViewModel("s-1", { cost: 5 }));
       expect(aggregateCost.value).toBe(5);
+    });
+  });
+
+  describe("aggregateTokens", () => {
+    test("sums each token category across sessions independently", () => {
+      sessions.value = [
+        makeViewModel("s-1", { tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } } }),
+        makeViewModel("s-2", { tokens: { input: 1, output: 2, reasoning: 3, cache: { read: 4, write: 5 } } }),
+      ];
+
+      expect(aggregateTokens.value).toEqual({ input: 11, output: 22, reasoning: 33, cache: { read: 44, write: 55 } });
+    });
+
+    test("updates live when sessions changes", () => {
+      sessions.value = [makeViewModel("s-1", { tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } })];
+      expect(aggregateTokens.value.input).toBe(1);
+      applyPayload(makeViewModel("s-1", { tokens: { input: 5, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }));
+      expect(aggregateTokens.value.input).toBe(5);
     });
   });
 });

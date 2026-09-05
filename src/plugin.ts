@@ -1,6 +1,7 @@
 import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import type { Event } from "@opencode-ai/sdk";
 import { startServer } from "./server/http.js";
+import { type LockInfo, isPidAlive, readLock, releaseLock, writeLock } from "./server/lock.js";
 import { broadcast, closeAllConnections, handleEventRequest } from "./server/sse.js";
 import {
   getViewModel,
@@ -13,8 +14,6 @@ import {
   handleSessionUpdated,
 } from "./core/state-store.js";
 
-const SERVICE = "opencode-session-viewer";
-
 /** Platform-native OS browser-opener command (Design Notes) — no new dependency. */
 export function resolveOpenCommand(platform: string, url: string): string[] {
   switch (platform) {
@@ -25,10 +24,6 @@ export function resolveOpenCommand(platform: string, url: string): string[] {
     default:
       return ["xdg-open", url];
   }
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 export type ResolvedConfig = {
@@ -54,15 +49,6 @@ export function resolveConfig(options: PluginOptions | undefined): ResolvedConfi
     port: typeof options?.port === "number" ? options.port : DEFAULT_CONFIG.port,
     autoLaunch: typeof options?.autoLaunch === "boolean" ? options.autoLaunch : DEFAULT_CONFIG.autoLaunch,
   };
-}
-
-/** Never lets a failing `client.app.log()` call itself escape as an unhandled rejection. */
-async function log(client: PluginInput["client"], level: "error" | "warn" | "info", message: string): Promise<void> {
-  try {
-    await client.app.log({ body: { service: SERVICE, level, message } });
-  } catch {
-    // best-effort logging only
-  }
 }
 
 /** `new URL("../dist", import.meta.url)` from this file == project-root `dist/` (Design Notes). */
@@ -102,6 +88,12 @@ export function dispatchEvent(event: Event): string | undefined {
 export type PluginDeps = {
   startServer: typeof startServer;
   spawn: typeof Bun.spawn;
+  /** Lock-file deps default to no-ops (never join, never persist) so tests that omit them keep the pre-lockfile, always-start-a-server behavior. */
+  readLock?: () => LockInfo | undefined;
+  writeLock?: (info: LockInfo) => void;
+  releaseLock?: (pid: number) => void;
+  isPidAlive?: (pid: number) => boolean;
+  fetch?: typeof fetch;
 };
 
 /**
@@ -110,61 +102,102 @@ export type PluginDeps = {
  * registry process-wide, leaking across test files — plain parameters avoid that entirely).
  */
 export function createHandler(deps: PluginDeps) {
-  return async ({ client }: PluginInput, options?: PluginOptions): Promise<Hooks> => {
+  const readLockImpl = deps.readLock ?? (() => undefined);
+  const writeLockImpl = deps.writeLock ?? (() => {});
+  const releaseLockImpl = deps.releaseLock ?? (() => {});
+  const isPidAliveImpl = deps.isPidAlive ?? (() => false);
+  const fetchImpl = deps.fetch ?? fetch;
+
+  return async (_input: PluginInput, options?: PluginOptions): Promise<Hooks> => {
     const config = resolveConfig(options);
     let server: Bun.Server<undefined> | undefined;
+    let remoteBase: string | undefined;
 
-    try {
-      server = deps.startServer({
-        hostname: config.hostname,
-        port: config.port,
-        staticDir: resolveStaticDir(),
-        onEventRequest: () => handleEventRequest(getViewModels),
-      });
-    } catch (error) {
-      await log(client, "error", `Failed to start local server: ${formatError(error)}`);
+    // One server for all sessions (Design Notes): if a live process already owns the lockfile,
+    // join it instead of binding a second port — this session's events get forwarded via /ingest.
+    const existingLock = readLockImpl();
+    if (existingLock && isPidAliveImpl(existingLock.pid)) {
+      remoteBase = `http://${existingLock.hostname}:${existingLock.port}`;
+    } else {
+      try {
+        server = deps.startServer({
+          hostname: config.hostname,
+          port: config.port,
+          staticDir: resolveStaticDir(),
+          onEventRequest: () => handleEventRequest(getViewModels),
+          onIngestRequest: async (request) => {
+            try {
+              const event = (await request.json()) as Event;
+              const sessionID = dispatchEvent(event);
+              if (sessionID) {
+                const viewModel = getViewModel(sessionID);
+                if (viewModel) broadcast(viewModel);
+              }
+              return new Response(null, { status: 204 });
+            } catch {
+              return new Response("Bad Request", { status: 400 });
+            }
+          },
+        });
+        // ponytail: no cross-process file lock around this read-then-write, so two processes
+        // starting in the same instant can both bind a server; the later writeLock just wins and
+        // the loser's server leaks until its own dispose(). Add real locking if that race matters.
+        writeLockImpl({ hostname: config.hostname, port: Number(server.url.port), pid: process.pid });
+      } catch {
+        // Bind/start failed: no server, no lock — this session just has no dashboard.
+      }
     }
 
-    if (server && !config.autoLaunch) {
-      await log(client, "info", `Dashboard available at ${server.url.toString()}`);
-    } else if (server) {
+    // Only the session that actually started the server opens a browser tab (Design Notes: one
+    // server AND one dashboard tab for all sessions) — a joining session's dashboard is already
+    // open from whichever session started it.
+    if (server && config.autoLaunch) {
       try {
         // stdio: ignore avoids the well-documented Bun.spawn gotcha where an inherited/piped
         // stdio keeps the parent (opencode) process alive after the browser opener exits.
         const subprocess = deps.spawn(resolveOpenCommand(process.platform, server.url.toString()), {
           stdio: ["ignore", "ignore", "ignore"],
         });
-        subprocess.exited
-          .then((code) => (code === 0 ? undefined : log(client, "warn", `Browser opener exited with code ${code}`)))
-          .catch((error) => log(client, "warn", `Failed to open browser: ${formatError(error)}`));
-      } catch (error) {
-        await log(client, "warn", `Failed to open browser: ${formatError(error)}`);
+        subprocess.exited.catch(() => {});
+      } catch {
+        // Browser opener failed to launch: server still runs, nothing further to do.
       }
     }
 
     return {
       async event({ event }) {
         try {
-          const sessionID = dispatchEvent(event);
-          if (!sessionID) return;
-          const viewModel = getViewModel(sessionID);
-          if (viewModel) broadcast(viewModel);
-        } catch (error) {
-          await log(client, "error", `Failed to handle event: ${formatError(error)}`);
+          if (server) {
+            const sessionID = dispatchEvent(event);
+            if (!sessionID) return;
+            const viewModel = getViewModel(sessionID);
+            if (viewModel) broadcast(viewModel);
+          } else if (remoteBase) {
+            await fetchImpl(`${remoteBase}/ingest`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(event),
+            });
+          }
+        } catch {
+          // Event handling failed: drop it, never let it surface as an unhandled rejection.
         }
       },
       async dispose() {
         try {
-          closeAllConnections();
-          await server?.stop(true);
-        } catch (error) {
-          await log(client, "warn", `Failed to stop local server: ${formatError(error)}`);
+          if (server) {
+            closeAllConnections();
+            await server.stop(true);
+            releaseLockImpl(process.pid);
+          }
+        } catch {
+          // Shutdown failed: nothing left to do, the process is exiting anyway.
         }
       },
     };
   };
 }
 
-const plugin: Plugin = createHandler({ startServer, spawn: Bun.spawn });
+const plugin: Plugin = createHandler({ startServer, spawn: Bun.spawn, readLock, writeLock, releaseLock, isPidAlive });
 
 export default plugin;

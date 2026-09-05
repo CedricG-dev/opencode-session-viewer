@@ -1,8 +1,8 @@
 import { computed, signal } from "@preact/signals";
-import type { ViewModel } from "../core/view-model.js";
+import type { TokenBreakdown, ViewModel } from "../core/view-model.js";
 
 /** Client-side read model, hydrated exclusively from the SSE stream -- never derives a new fact
- * beyond `aggregateCost`'s trivial display-only sum (AD-2). */
+ * beyond `aggregateCost`/`aggregateTokens`'s trivial display-only sums (AD-2). */
 export const sessions = signal<ViewModel[]>([]);
 
 /** Toggled only by `connect()`'s `onopen`/`onerror` (AD-7) -- reconnect itself is EventSource's
@@ -12,6 +12,23 @@ export const connected = signal(false);
 /** Sum of each session's already-authoritative `cost` -- trivial display-only aggregation, never
  * an independent cost computation (AD-2). */
 export const aggregateCost = computed(() => sessions.value.reduce((total, session) => total + session.cost, 0));
+
+/** Per-category sum of each session's already-authoritative `tokens` -- same trivial display-only
+ * aggregation as `aggregateCost`, never an independent token computation (AD-2). */
+export const aggregateTokens = computed<TokenBreakdown>(() =>
+  sessions.value.reduce(
+    (total, session) => ({
+      input: total.input + session.tokens.input,
+      output: total.output + session.tokens.output,
+      reasoning: total.reasoning + session.tokens.reasoning,
+      cache: {
+        read: total.cache.read + session.tokens.cache.read,
+        write: total.cache.write + session.tokens.cache.write,
+      },
+    }),
+    { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  ),
+);
 
 /** Snapshot (array) fully replaces the list; delta (single object) replaces that session by `id`,
  * appending when the `id` is unseen (AD-7). */

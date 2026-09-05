@@ -139,7 +139,7 @@ describe("plugin factory", () => {
   });
 
   test("plugin loads normally: server starts, browser opens to the bound URL, dispose() stops the server with stop(true)", async () => {
-    const { client, logs } = makeClient();
+    const { client } = makeClient();
     const stopped = { count: 0 };
     const stopArgs: unknown[] = [];
     const server = fakeServer(stopped, stopArgs);
@@ -155,7 +155,6 @@ describe("plugin factory", () => {
     const hooks = await createHandler(deps)({ client } as PluginInput);
     await flushMicrotasks();
 
-    expect(logs).toHaveLength(0);
     expect(spawnCalls).toEqual([resolveOpenCommand(process.platform, server.url.toString())]);
     await hooks.dispose?.();
     expect(stopped.count).toBe(1);
@@ -186,8 +185,8 @@ describe("plugin factory", () => {
     await hooks.dispose?.();
   });
 
-  test("autoLaunch:false, bind succeeds: deps.spawn is never called, level:info log names the reachable URL", async () => {
-    const { client, logs } = makeClient();
+  test("autoLaunch:false, bind succeeds: deps.spawn is never called, nothing is logged (Design Notes: fully silent)", async () => {
+    const { client } = makeClient();
     const stopped = { count: 0 };
     const server = fakeServer(stopped);
     const spawnCalls: string[][] = [];
@@ -203,29 +202,28 @@ describe("plugin factory", () => {
     await flushMicrotasks();
 
     expect(spawnCalls).toEqual([]);
-    expect(logs).toHaveLength(1);
-    expect(logs[0]?.level).toBe("info");
-    expect(logs[0]?.message).toContain(server.url.toString());
     await hooks.dispose?.();
   });
 
-  test("browser opener exits non-zero: logs level:warn, server keeps running", async () => {
-    const { client, logs } = makeClient();
+  test("browser opener exits non-zero: ignored silently, server keeps running", async () => {
+    const { client } = makeClient();
     const stopped = { count: 0 };
+    const server = fakeServer(stopped);
     const deps: PluginDeps = {
-      startServer: () => fakeServer(stopped),
+      startServer: () => server,
       spawn: () => fakeSubprocess(1),
     };
 
-    await createHandler(deps)({ client } as PluginInput);
+    const hooks = await createHandler(deps)({ client } as PluginInput);
     await flushMicrotasks();
 
-    expect(logs).toHaveLength(1);
-    expect(logs[0]?.level).toBe("warn");
+    expect(stopped.count).toBe(0);
+    await hooks.dispose?.();
+    expect(stopped.count).toBe(1);
   });
 
-  test("dispose(): server.stop() rejecting is caught and logged, never thrown", async () => {
-    const { client, logs } = makeClient();
+  test("dispose(): server.stop() rejecting is caught, never thrown", async () => {
+    const { client } = makeClient();
     const deps: PluginDeps = {
       startServer: () =>
         ({
@@ -241,11 +239,10 @@ describe("plugin factory", () => {
     await flushMicrotasks();
 
     await expect(hooks.dispose?.()).resolves.toBeUndefined();
-    expect(logs.some((entry) => entry.level === "warn" && entry.message.includes("Failed to stop"))).toBe(true);
   });
 
-  test("server bind fails: factory returns Hooks without throwing, logs level:error, dispose() is a safe no-op", async () => {
-    const { client, logs } = makeClient();
+  test("server bind fails: factory returns Hooks without throwing, spawn is never called, dispose() is a safe no-op", async () => {
+    const { client } = makeClient();
     const deps: PluginDeps = {
       startServer: () => {
         throw new Error("bind failed");
@@ -257,14 +254,11 @@ describe("plugin factory", () => {
 
     const hooks = await createHandler(deps)({ client } as PluginInput);
 
-    expect(logs).toHaveLength(1);
-    expect(logs[0]?.level).toBe("error");
-    expect(logs[0]?.service).toBe("opencode-session-viewer");
     await expect(hooks.dispose?.()).resolves.toBeUndefined();
   });
 
-  test("browser fails to open: server keeps running, factory does not throw, logs level:warn", async () => {
-    const { client, logs } = makeClient();
+  test("browser fails to open: server keeps running, factory does not throw", async () => {
+    const { client } = makeClient();
     const stopped = { count: 0 };
     const deps: PluginDeps = {
       startServer: () => fakeServer(stopped),
@@ -275,10 +269,102 @@ describe("plugin factory", () => {
 
     const hooks = await createHandler(deps)({ client } as PluginInput);
 
-    expect(logs).toHaveLength(1);
-    expect(logs[0]?.level).toBe("warn");
     // server kept running: dispose() still stops the server that was started.
     await hooks.dispose?.();
+    expect(stopped.count).toBe(1);
+  });
+});
+
+describe("plugin factory: lockfile join (one server for all sessions)", () => {
+  afterEach(() => {
+    closeAllConnections();
+  });
+
+  test("existing lock names a live pid: joins it, never starts its own server, never opens a second browser tab", async () => {
+    const { client } = makeClient();
+    const startServerCalls: unknown[] = [];
+    const spawnCalls: string[][] = [];
+    const deps: PluginDeps = {
+      startServer: (options) => {
+        startServerCalls.push(options);
+        return fakeServer({ count: 0 });
+      },
+      spawn: (cmd) => {
+        spawnCalls.push(cmd as string[]);
+        return fakeSubprocess(0);
+      },
+      readLock: () => ({ hostname: "127.0.0.1", port: 9999, pid: 4242 }),
+      isPidAlive: (pid) => pid === 4242,
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    expect(startServerCalls).toHaveLength(0);
+    // A joining session doesn't own the server: its dashboard tab is already open elsewhere, so
+    // it must never spawn a second browser tab (Design Notes: one server AND one dashboard tab).
+    expect(spawnCalls).toEqual([]);
+    await hooks.dispose?.();
+  });
+
+  test("joined process forwards its session events via POST /ingest on the remote server", async () => {
+    const { client } = makeClient();
+    const fetchCalls: { url: string; init?: RequestInit }[] = [];
+    const deps: PluginDeps = {
+      startServer: () => fakeServer({ count: 0 }),
+      spawn: () => fakeSubprocess(0),
+      readLock: () => ({ hostname: "127.0.0.1", port: 9999, pid: 4242 }),
+      isPidAlive: () => true,
+      fetch: (async (url: string, init?: RequestInit) => {
+        fetchCalls.push({ url, init });
+        return new Response(null, { status: 204 });
+      }) as typeof fetch,
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    const event: Event = { type: "session.created", properties: { info: makeSession("s-forwarded") } };
+    await hooks.event?.({ event });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.url).toBe("http://127.0.0.1:9999/ingest");
+    expect(JSON.parse(fetchCalls[0]?.init?.body as string)).toEqual(event);
+    // No server owned by this process: dispose() is a no-op, doesn't touch a lock it doesn't own.
+    await expect(hooks.dispose?.()).resolves.toBeUndefined();
+  });
+
+  test("existing lock names a dead pid: starts its own server and overwrites the stale lock", async () => {
+    const { client } = makeClient();
+    const server = fakeServer({ count: 0 });
+    const writeLockCalls: unknown[] = [];
+    const releaseLockCalls: number[] = [];
+    const deps: PluginDeps = {
+      startServer: () => server,
+      spawn: () => fakeSubprocess(0),
+      readLock: () => ({ hostname: "127.0.0.1", port: 9999, pid: 4242 }),
+      isPidAlive: () => false,
+      writeLock: (info) => writeLockCalls.push(info),
+      releaseLock: (pid) => releaseLockCalls.push(pid),
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    expect(writeLockCalls).toEqual([{ hostname: "127.0.0.1", port: 12345, pid: process.pid }]);
+    await hooks.dispose?.();
+    expect(releaseLockCalls).toEqual([process.pid]);
+  });
+
+  test("no readLock/writeLock/isPidAlive deps supplied: behaves exactly as before (always starts its own server)", async () => {
+    const { client } = makeClient();
+    const stopped = { count: 0 };
+    const deps: PluginDeps = { startServer: () => fakeServer(stopped), spawn: () => fakeSubprocess(0) };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+    await hooks.dispose?.();
+
     expect(stopped.count).toBe(1);
   });
 });
@@ -360,7 +446,7 @@ describe("Hooks.event", () => {
   });
 
   test("unknown session: event hook resolves without broadcasting anything", async () => {
-    const { client, logs } = makeClient();
+    const { client } = makeClient();
     const stopped = { count: 0 };
     const deps: PluginDeps = {
       startServer: () => fakeServer(stopped),
@@ -378,12 +464,11 @@ describe("Hooks.event", () => {
         },
       }),
     ).resolves.toBeUndefined();
-    expect(logs).toHaveLength(0);
     expect(getViewModel("s-event-never-seen")).toBeUndefined();
   });
 
-  test("dispatch throws: event hook resolves without throwing, logs level:error", async () => {
-    const { client, logs } = makeClient();
+  test("dispatch throws: event hook resolves without throwing", async () => {
+    const { client } = makeClient();
     const stopped = { count: 0 };
     const deps: PluginDeps = {
       startServer: () => fakeServer(stopped),
@@ -398,8 +483,5 @@ describe("Hooks.event", () => {
     const malformed = { type: "session.created", properties: {} } as unknown as Event;
 
     await expect(hooks.event?.({ event: malformed })).resolves.toBeUndefined();
-    expect(logs.some((entry) => entry.level === "error" && entry.message.includes("Failed to handle event"))).toBe(
-      true,
-    );
   });
 });
