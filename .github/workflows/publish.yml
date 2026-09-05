@@ -62,7 +62,6 @@ jobs:
         if: steps.verify.outputs.valid == 'true'
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
 
       - run: npm install -g npm@latest
         if: steps.verify.outputs.valid == 'true'
