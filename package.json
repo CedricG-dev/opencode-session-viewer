@@ -17,14 +17,12 @@
     "build": "rm -rf dist && bun build ./src/dashboard/index.html --outdir ./dist",
     "prepublishOnly": "bun run build"
   },
-  "dependencies": {
+  "devDependencies": {
     "@opencode-ai/plugin": "^1.18.0",
     "@opencode-ai/sdk": "^1.18.0",
     "@preact/signals": "^2.11.1",
     "htm": "^3.1.1",
-    "preact": "^10.29.8"
-  },
-  "devDependencies": {
+    "preact": "^10.29.8",
     "typescript": "^5",
     "@types/bun": "^1.4.1"
   }
