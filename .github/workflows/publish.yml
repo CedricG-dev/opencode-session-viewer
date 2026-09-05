@@ -15,8 +15,8 @@ jobs:
       - name: Verify tag is on main
         id: verify
         run: |
-          git fetch origin main
-          if git branch --contains HEAD | grep -q "main"; then
+          git fetch origin +main:refs/remotes/origin/main
+          if git merge-base --is-ancestor HEAD origin/main; then
             echo "valid=true" >> $GITHUB_OUTPUT
           else
             echo "::error::Tag is not on main branch"
