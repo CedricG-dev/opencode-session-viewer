@@ -15,3 +15,13 @@ export const fmtDate = (iso: string): string => {
   const d = new Date(iso);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
+
+/** Last path segment (handles both POSIX and Windows separators, since `Session.directory` comes
+ * from wherever opencode itself is running) -- the full path stays available as a tooltip
+ * alongside this, so this is deliberately just the "which project" cue, not the whole path. Falls
+ * back to the trimmed path itself when there's no segment to extract (e.g. "/" or ""). */
+export const pathBasename = (path: string): string => {
+  const trimmed = path.replace(/[/\\]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return idx === -1 ? trimmed || path : trimmed.slice(idx + 1);
+};

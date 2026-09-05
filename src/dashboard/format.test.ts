@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fmt, fmtCost, fmtDate } from "./format.js";
+import { fmt, fmtCost, fmtDate, pathBasename } from "./format.js";
 
 describe("fmt", () => {
   test("space-grouped thousands separator", () => {
@@ -42,5 +42,24 @@ describe("fmtDate", () => {
   test("pads single-digit day/month/hour/minute/second", () => {
     const iso = "2026-01-02T03:04:05.000Z";
     expect(fmtDate(iso)).toBe(expected(iso));
+  });
+});
+
+describe("pathBasename", () => {
+  test("returns the last segment of a POSIX path", () => {
+    expect(pathBasename("/home/alice/projects/my-app")).toBe("my-app");
+  });
+
+  test("returns the last segment of a Windows path", () => {
+    expect(pathBasename("C:\\Users\\alice\\projects\\my-app")).toBe("my-app");
+  });
+
+  test("ignores a trailing slash", () => {
+    expect(pathBasename("/home/alice/projects/my-app/")).toBe("my-app");
+  });
+
+  test("falls back to the path itself when there's no segment to extract", () => {
+    expect(pathBasename("/")).toBe("/");
+    expect(pathBasename("")).toBe("");
   });
 });
