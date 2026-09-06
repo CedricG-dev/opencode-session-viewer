@@ -82,21 +82,7 @@ debugger attached.
 
 Set an explicit, free `port` in `opencode.json`, or leave it unset (default `0`) to let the OS assign one automatically. An invalid or in-use configured port fails gracefully — opencode's own startup is never blocked.
 
-## 🔄 Git Workflow: `Simplified GitFlow`
+## Git Workflow & Versioning
 
-We use a streamlined `GitFlow` with 2 main branches:
-
-| Branch      | Purpose                                                    | Protection (GitHub) |
-|-------------|-------------------------------------------------------------|----------------------|
-| `main`      | **Production**: Stable, versioned, and published to NPM.    | ✅ Protected         |
-| `develop`   | **Integration**: Validated features, ready for release.     | ✅ Protected         |
-| `feature/*` | **Development**: New features (e.g., `feature/ai-hints`).   | ❌ Free              |
-| `fix/*`     | **Hotfixes**: Bug fixes (e.g., `fix/token-leak`).            | ❌ Free              |
-
-## Versioning: Semantic Versioning (SemVer)
-
-We follow `MAJOR.MINOR.PATCH`:
-
-- **MAJOR**: Breaking changes.
-- **MINOR**: Backward-compatible feature additions.
-- **PATCH**: Backward-compatible bug fixes.
+See [GITFLOW.md](./GITFLOW.md) for our branching model (including multi-major
+maintenance branches), common workflows, and SemVer policy.
