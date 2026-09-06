@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
+import { tool } from "@opencode-ai/plugin/tool";
 import type { Event } from "@opencode-ai/sdk";
 import { type AppServer, startServer } from "./server/http.js";
 import { type LockInfo, isPidAlive, readLock, releaseLock, writeLock } from "./server/lock.js";
@@ -86,6 +87,19 @@ function log(
   }
 }
 
+/** Fire-and-forget TUI toast via `client.tui.showToast()` — surfaces the dashboard URL directly
+ * in the terminal so the user never has to dig through opencode's log file for it (regardless of
+ * `autoLaunch`). Never throws, never blocks the caller. */
+function toast(client: PluginInput["client"], message: string): void {
+  try {
+    client?.tui
+      ?.showToast({ body: { title: "opencode-session-viewer", message, variant: "info" } })
+      ?.catch(() => {});
+  } catch {
+    // Toasting must never be the reason the plugin fails.
+  }
+}
+
 /**
  * Dispatches one opencode `Event` to the matching `core/state-store.ts` handler, returning the
  * affected session id (if any) so the caller can broadcast its freshly-derived `ViewModel`.
@@ -150,6 +164,7 @@ export function createHandler(deps: PluginDeps) {
     if (existingLock && isPidAliveImpl(existingLock.pid)) {
       remoteBase = `http://${existingLock.hostname}:${existingLock.port}`;
       log(client, "info", "joining existing dashboard server", { remoteBase });
+      toast(client, `Dashboard: ${remoteBase}`);
     } else {
       try {
         server = await deps.startServer({
@@ -176,6 +191,7 @@ export function createHandler(deps: PluginDeps) {
         // the loser's server leaks until its own dispose(). Add real locking if that race matters.
         writeLockImpl({ hostname: config.hostname, port: Number(server.url.port), pid: process.pid });
         log(client, "info", "dashboard server started", { url: server.url.toString() });
+        toast(client, `Dashboard: ${server.url.toString()}`);
       } catch (error) {
         // Bind/start failed: no server, no lock — this session just has no dashboard.
         log(client, "warn", "dashboard server failed to start", { error: String(error) });
@@ -199,6 +215,31 @@ export function createHandler(deps: PluginDeps) {
     }
 
     return {
+      tool: {
+        opencode_session_viewer_dashboard_open: tool({
+          description:
+            "Opens (or reopens) the opencode-session-viewer dashboard — a local, private, live " +
+            "activity view of all opencode sessions — in the user's default browser. Use this " +
+            "when the user asks to open, reopen, or show the (session-viewer) dashboard, e.g. " +
+            "after they closed the browser tab. This is NOT opencode's own session-share/public-" +
+            "link feature ('session_share'/'share a session') — do not use this tool for that.",
+          args: {},
+          async execute() {
+            const url = server?.url.toString() ?? remoteBase;
+            if (!url) return "The opencode-session-viewer dashboard is not running (it failed to start).";
+            try {
+              const subprocess = deps.spawn(resolveOpenCommand(process.platform, url), {
+                stdio: ["ignore", "ignore", "ignore"],
+              });
+              subprocess.exited.catch(() => {});
+            } catch {
+              // Browser opener failed to launch: the URL below is still a valid fallback.
+            }
+            toast(client, `Dashboard: ${url}`);
+            return `Dashboard opened at ${url}`;
+          },
+        }),
+      },
       async event({ event }) {
         try {
           if (server) {

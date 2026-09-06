@@ -1,9 +1,20 @@
 # Development
 
-This project uses npm for running, testing, and building. (opencode itself still loads the
-published plugin via its own bundled Bun runtime at install/run time — see `src/plugin.ts` and
-`src/server/http.ts`, which only use Node built-ins for exactly that reason: they run fine under
-either runtime.)
+This guide covers setting up a local development environment for `opencode-session-viewer`,
+including how to point a local opencode project at your working copy via `opencode.json`.
+
+## Prerequisites
+
+- **Node.js** >= 18.0.0 ([download](https://nodejs.org/)) — the plugin uses Node built-ins
+  (`node:http`, `node:fs`, `node:child_process`, `node:url`, `node:os`, `node:path`) so it works
+  under both Node and the Bun runtime opencode itself bundles.
+- **Git** ([download](https://git-scm.com/))
+- **opencode** — install globally:
+  ```bash
+  npm install -g opencode-ai
+  ```
+
+## Project Setup
 
 1. Clone the repository and install dependencies:
    ```bash
@@ -20,18 +31,15 @@ either runtime.)
    npm run build
    ```
 
-## About `dist/`
+## Setup local plugin in project
 
-The plugin's server (`src/server/http.ts`) serves the dashboard's static frontend (HTML/JS/CSS) from a `dist/` folder next to `src/` (resolved via `resolveStaticDir()` in `src/plugin.ts`). This folder is:
+Copy the example config and adjust it for your machine:
 
-- **git-ignored** — it's build output, not source.
-- **generated** by `npm run build` (`scripts/build-dashboard.mjs`, esbuild), which bundles `src/dashboard/main.ts` and its dependencies.
-- **required at runtime** — without it, the plugin has no UI to serve.
-- **required at publish time** — `npm publish` automatically runs `npm run build` first (`prepublishOnly` script) so `dist/` is fresh and included in the published package (see `files` in `package.json`).
+```bash
+cp opencode.json.example opencode.json
+```
 
-## Trying local changes in opencode
-
-To point a local opencode project at your working copy instead of the published npm package, reference it by absolute path in `opencode.json`:
+To point a local opencode project at your working copy instead of the published npm package, reference it by absolute path in `opencode.json` (project-level or `~/.config/opencode/opencode.json` for global):
 
 ```json
 {
@@ -39,7 +47,21 @@ To point a local opencode project at your working copy instead of the published 
 }
 ```
 
+`opencode.json` is git-ignored (it typically contains a machine-specific absolute path) — `opencode.json.example` is the tracked template.
+
 Remember to run `npm run build` after frontend changes — opencode doesn't rebuild `dist/` for you.
+
+Start opencode as usual from the project directory:
+
+```bash
+opencode
+```
+
+On startup, a local server binds to `hostname`/`port` (see [README.md](./README.md#configuration-options) for the full option list) and, unless `autoLaunch` is `false`, opens a browser tab to the dashboard.
+
+## Running multiple opencode instances
+
+If you run several opencode instances against the same project, only the first one binds the dashboard server; subsequent instances detect the existing server via a lock file (`opencode-session-viewer.lock` in the OS temp directory) and forward their events to it instead of starting a second server or opening a second tab. See `src/server/lock.ts` and `plugin.ts`'s `/ingest` wiring for details.
 
 ## Logging
 
@@ -48,7 +70,19 @@ Remember to run `npm run build` after frontend changes — opencode doesn't rebu
 opencode's log file (see opencode's docs for its location) shows what happened without needing a
 debugger attached.
 
-## Publishing
+## Troubleshooting
 
-See [PUBLISHING.md](./PUBLISHING.md) for how releases are versioned, tagged, and published via GitHub Actions.
-</content>
+### Dashboard doesn't open
+
+1. Confirm `opencode.json` is at the project root (or `~/.config/opencode/opencode.json` for global installs) and references the plugin correctly.
+2. Check opencode's own log file for `opencode-session-viewer` entries — a bind failure or thrown error is logged there, never silently swallowed.
+3. If `autoLaunch` is `false`, the dashboard URL is only in the logs — find it and open it manually.
+
+### Port already in use
+
+Set an explicit, free `port` in `opencode.json`, or leave it unset (default `0`) to let the OS assign one automatically. An invalid or in-use configured port fails gracefully — opencode's own startup is never blocked.
+
+## Git Workflow & Versioning
+
+See [GITFLOW.md](./GITFLOW.md) for our branching model (including multi-major
+maintenance branches), common workflows, and SemVer policy.

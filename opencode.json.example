@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+      "@cedricg-dev/opencode-session-viewer",
+      {
+        "port": 4097,
+        "hostname": "127.0.0.1",
+        "autoLaunch": true
+      }
+    ]
+  ]
+}
