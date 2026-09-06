@@ -17,9 +17,11 @@ import {
 } from "./plugin.js";
 
 type LogCall = { service: string; level: string; message: string };
+type ToastCall = { title?: string; message: string; variant: string };
 
-function makeClient(): { client: PluginInput["client"]; logs: LogCall[] } {
+function makeClient(): { client: PluginInput["client"]; logs: LogCall[]; toasts: ToastCall[] } {
   const logs: LogCall[] = [];
+  const toasts: ToastCall[] = [];
   const client = {
     app: {
       async log({ body }: { body: LogCall }) {
@@ -27,8 +29,14 @@ function makeClient(): { client: PluginInput["client"]; logs: LogCall[] } {
         return true;
       },
     },
+    tui: {
+      async showToast({ body }: { body: ToastCall }) {
+        toasts.push(body);
+        return true;
+      },
+    },
   } as unknown as PluginInput["client"];
-  return { client, logs };
+  return { client, logs, toasts };
 }
 
 function fakeServer(stopped: { count: number }, stopArgs: unknown[] = []): AppServer {
@@ -140,7 +148,7 @@ describe("plugin factory", () => {
   });
 
   test("plugin loads normally: server starts, browser opens to the bound URL, dispose() stops the server with stop(true)", async () => {
-    const { client } = makeClient();
+    const { client, toasts } = makeClient();
     const stopped = { count: 0 };
     const stopArgs: unknown[] = [];
     const server = fakeServer(stopped, stopArgs);
@@ -157,6 +165,8 @@ describe("plugin factory", () => {
     await flushMicrotasks();
 
     expect(spawnCalls).toEqual([resolveOpenCommand(process.platform, server.url.toString())]);
+    // Toast fires regardless of autoLaunch, so the URL is visible in the TUI without digging logs.
+    expect(toasts).toEqual([{ title: "opencode-session-viewer", message: `Dashboard: ${server.url}`, variant: "info" }]);
     await hooks.dispose?.();
     expect(stopped.count).toBe(1);
     expect(stopArgs).toEqual([true]);
@@ -186,8 +196,8 @@ describe("plugin factory", () => {
     await hooks.dispose?.();
   });
 
-  test("autoLaunch:false, bind succeeds: deps.spawn is never called, nothing is logged (Design Notes: fully silent)", async () => {
-    const { client } = makeClient();
+  test("autoLaunch:false, bind succeeds: deps.spawn is never called for the browser tab, but the URL still reaches the user via toast", async () => {
+    const { client, toasts } = makeClient();
     const stopped = { count: 0 };
     const server = fakeServer(stopped);
     const spawnCalls: string[][] = [];
@@ -203,6 +213,7 @@ describe("plugin factory", () => {
     await flushMicrotasks();
 
     expect(spawnCalls).toEqual([]);
+    expect(toasts).toEqual([{ title: "opencode-session-viewer", message: `Dashboard: ${server.url}`, variant: "info" }]);
     await hooks.dispose?.();
   });
 
@@ -282,7 +293,7 @@ describe("plugin factory: lockfile join (one server for all sessions)", () => {
   });
 
   test("existing lock names a live pid: joins it, never starts its own server, never opens a second browser tab", async () => {
-    const { client } = makeClient();
+    const { client, toasts } = makeClient();
     const startServerCalls: unknown[] = [];
     const spawnCalls: string[][] = [];
     const deps: PluginDeps = {
@@ -305,6 +316,8 @@ describe("plugin factory: lockfile join (one server for all sessions)", () => {
     // A joining session doesn't own the server: its dashboard tab is already open elsewhere, so
     // it must never spawn a second browser tab (Design Notes: one server AND one dashboard tab).
     expect(spawnCalls).toEqual([]);
+    // A joining session still toasts the URL, so its user isn't left without a way to find it.
+    expect(toasts).toEqual([{ title: "opencode-session-viewer", message: "Dashboard: http://127.0.0.1:9999", variant: "info" }]);
     await hooks.dispose?.();
   });
 
@@ -367,6 +380,98 @@ describe("plugin factory: lockfile join (one server for all sessions)", () => {
     await hooks.dispose?.();
 
     expect(stopped.count).toBe(1);
+  });
+});
+
+describe("Hooks.tool.opencode_session_viewer_dashboard_open", () => {
+  afterEach(() => {
+    closeAllConnections();
+  });
+
+  test("server started here: spawns the opener again and reports the URL", async () => {
+    const { client, toasts } = makeClient();
+    const server = fakeServer({ count: 0 });
+    const spawnCalls: string[][] = [];
+    const deps: PluginDeps = {
+      startServer: () => server,
+      spawn: (cmd) => {
+        spawnCalls.push(cmd as string[]);
+        return fakeSubprocess(0);
+      },
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+    toasts.length = 0; // clear the startup toast to isolate the tool's own toast
+    spawnCalls.length = 0; // clear the autoLaunch spawn to isolate the tool's own spawn
+
+    const result = await hooks.tool!.opencode_session_viewer_dashboard_open.execute({}, {} as never);
+
+    expect(spawnCalls).toEqual([resolveOpenCommand(process.platform, server.url.toString())]);
+    expect(toasts).toEqual([{ title: "opencode-session-viewer", message: `Dashboard: ${server.url}`, variant: "info" }]);
+    expect(result).toBe(`Dashboard opened at ${server.url}`);
+    await hooks.dispose?.();
+  });
+
+  test("joined an existing server: spawns the opener against remoteBase", async () => {
+    const { client } = makeClient();
+    const spawnCalls: string[][] = [];
+    const deps: PluginDeps = {
+      startServer: () => fakeServer({ count: 0 }),
+      spawn: (cmd) => {
+        spawnCalls.push(cmd as string[]);
+        return fakeSubprocess(0);
+      },
+      readLock: () => ({ hostname: "127.0.0.1", port: 9999, pid: 4242 }),
+      isPidAlive: () => true,
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+    spawnCalls.length = 0;
+
+    const result = await hooks.tool!.opencode_session_viewer_dashboard_open.execute({}, {} as never);
+
+    expect(spawnCalls).toEqual([resolveOpenCommand(process.platform, "http://127.0.0.1:9999")]);
+    expect(result).toBe("Dashboard opened at http://127.0.0.1:9999");
+    await hooks.dispose?.();
+  });
+
+  test("server failed to start: reports it's not running, never spawns", async () => {
+    const { client } = makeClient();
+    const deps: PluginDeps = {
+      startServer: () => {
+        throw new Error("bind failed");
+      },
+      spawn: () => {
+        throw new Error("spawn should not be called");
+      },
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+
+    const result = await hooks.tool!.opencode_session_viewer_dashboard_open.execute({}, {} as never);
+
+    expect(result).toBe("The opencode-session-viewer dashboard is not running (it failed to start).");
+  });
+
+  test("opener throws: still reports the URL as a fallback for the user to open manually", async () => {
+    const { client } = makeClient();
+    const server = fakeServer({ count: 0 });
+    const deps: PluginDeps = {
+      startServer: () => server,
+      spawn: () => {
+        throw new Error("ENOENT");
+      },
+    };
+
+    const hooks = await createHandler(deps)({ client } as PluginInput);
+    await flushMicrotasks();
+
+    const result = await hooks.tool!.opencode_session_viewer_dashboard_open.execute({}, {} as never);
+
+    expect(result).toBe(`Dashboard opened at ${server.url}`);
+    await hooks.dispose?.();
   });
 });
 
