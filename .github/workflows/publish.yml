@@ -9,11 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  verify:
     runs-on: ubuntu-latest
+    outputs:
+      valid: ${{ steps.verify.outputs.valid }}
+      npm_tag: ${{ steps.verify.outputs.npm_tag }}
     steps:
       - uses: actions/checkout@v5
-      
 
       - name: Verify tag is on main or a release branch
         id: verify
@@ -41,33 +43,27 @@ jobs:
             fi
           fi
 
+  security:
+    needs: verify
+    if: needs.verify.outputs.valid == 'true'
+    uses: ./.github/workflows/security-scan.yml
+
+  publish:
+    needs: [verify, security]
+    if: needs.verify.outputs.valid == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
       # Node 24 bundles npm 11.19+, which trusted/staged publishing (OIDC) needs (>=11.15.0).
       - uses: actions/setup-node@v6
-        if: steps.verify.outputs.valid == 'true'
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
-        if: steps.verify.outputs.valid == 'true'
-
-      - name: Security audit (npm)
-        if: steps.verify.outputs.valid == 'true'
-        run: npm audit --audit-level=moderate
-
-      - name: Security scan (filesystem)
-        if: steps.verify.outputs.valid == 'true'
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
 
       - name: Set version from tag
-        if: steps.verify.outputs.valid == 'true'
         run: |
           TAG=${GITHUB_REF#refs/tags/v}
           npm version $TAG --no-git-tag-version
@@ -75,5 +71,4 @@ jobs:
       # Submits to npm's staging area only. A maintainer must still review and
       # approve with 2FA (via `npm stage approve <stage-id>` or npmjs.com)
       # before the version actually goes live on the registry.
-      - run: npm stage publish --tag ${{ steps.verify.outputs.npm_tag }}
-        if: steps.verify.outputs.valid == 'true'
+      - run: npm stage publish --tag ${{ needs.verify.outputs.npm_tag }}

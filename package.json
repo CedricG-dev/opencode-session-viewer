@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "private": false,
+  "license": "MIT",
   "main": "src/plugin.ts",
   "keywords": [
     "opencode",
@@ -19,15 +20,13 @@
   },
   "files": [
     "src",
-    "dist"
+    "dist",
+    "!src/**/*.test.ts"
   ],
   "scripts": {
     "test": "vitest run",
     "build": "node scripts/build-dashboard.mjs",
     "prepublishOnly": "npm run build"
-  },
-  "dependencies": {
-    "zod": "^4.1.8"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.18.0",

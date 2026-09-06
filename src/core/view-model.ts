@@ -22,7 +22,7 @@ export type TokenBreakdown = {
   cache: { read: number; write: number };
 };
 
-const ZERO_TOKENS: TokenBreakdown = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
+export const ZERO_TOKENS: TokenBreakdown = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
 
 /** Exported for `dashboard/model-filter.ts`'s re-summing of a filtered `ModelUsage[]` subset --
  * same trivial merge, just reused instead of duplicated. */

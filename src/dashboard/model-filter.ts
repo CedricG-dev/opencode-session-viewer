@@ -1,6 +1,4 @@
-import { addTokens, mergeModelUsage, type ModelUsage, type SubSessionSummary, type TokenBreakdown, type ViewModel } from "../core/view-model.js";
-
-const ZERO_TOKENS: TokenBreakdown = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
+import { addTokens, mergeModelUsage, ZERO_TOKENS, type ModelUsage, type SubSessionSummary, type TokenBreakdown, type ViewModel } from "../core/view-model.js";
 
 /** Stable string key for a provider/model pair -- `Set<string>` membership for the filter UI. */
 export function modelFilterKey(m: { providerID: string; modelID: string }): string {
